@@ -1,0 +1,51 @@
+# Entire data
+train_data_list = [
+    'data/data_fold/data_0/dailydialog_train.json',
+    * [f'data/data_fold/data_{fold_}/data_{fold_}_train.json' for fold_ in range(1, 5)]
+]
+valid_data_list = [
+    'data/data_fold/data_0/dailydialog_valid.json',
+    * [f'data/data_fold/data_{fold_}/data_{fold_}_valid.json' for fold_ in range(1, 5)]
+]
+test_data_list = [
+    'data/data_fold/data_0/dailydialog_test.json',
+    * [f'data/data_fold/data_{fold_}/data_{fold_}_test.json' for fold_ in range(1, 5)]
+]
+data_label = ['-original_data_DailyDialog', *[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)]]
+
+# Original Dataset (1 fold)
+train_data_list = ['data/data_fold/data_0/dailydialog_train.json']
+valid_data_list = ['data/data_fold/data_0/dailydialog_valid.json']
+test_data_list = ['data/data_fold/data_0/dailydialog_test.json']
+data_label = ['-original_fold']
+
+# Another folds
+fold_ = 1
+train_data_list = [
+    * [f'data/data_fold/data_{fold_}/data_{fold_}_train.json']
+]
+valid_data_list = [
+    * [f'data/data_fold/data_{fold_}/data_{fold_}_valid.json']
+]
+test_data_list = [
+    * [f'data/data_fold/data_{fold_}/data_{fold_}_test.json']
+]
+data_label = [* [f'-data_{fold_}_DailyDialog']]
+
+# Folds
+train_data_list = [
+* [f'data/data_fold/data_{fold_}/data_{fold_}_train.json' for fold_ in range(1, 5)]
+]
+valid_data_list = [
+    * [f'data/data_fold/data_{fold_}/data_{fold_}_valid.json' for fold_ in range(1, 5)]
+]
+test_data_list = [
+    * [f'data/data_fold/data_{fold_}/data_{fold_}_test.json' for fold_ in range(1, 5)]
+]
+data_label = [*[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)]]
+
+# Mini Dataset (1 fold)
+train_data_list = ['data/data_mini/dailydialog_train.json']
+valid_data_list = ['data/data_mini/dailydialog_valid.json']
+test_data_list = ['data/data_mini/dailydialog_test.json']
+data_label = ['-original_mini']

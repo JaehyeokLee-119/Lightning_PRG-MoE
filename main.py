@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--only_emotion', help='only emotion classification', default=False, type=bool)
     
     # Encoder Model Setting
-    parser.add_argument('--encoder_name', help='the name of encoder', default='roberta-large')
+    parser.add_argument('--encoder_name', help='the name of encoder', default='roberta-base')
     parser.add_argument('--unfreeze', help='the number of layers to be unfrozen', default=0, type=int) # 0 == unfreeze all layers
     parser.add_argument('--max_seq_len', help='the max length of each tokenized utterance', default=75, type=int)
     parser.add_argument('--contain_context', help='While tokenizing, previous utterances are contained or not', default=False)
@@ -78,18 +78,18 @@ class Main:
         test_preconditions(self.args)
         set_random_seed(77)
         
+    def run(self):
+        # Start Training/Testing
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join([str(_) for _ in self.args.gpus])
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # ignore TensorFlow error message 
         os.environ["WANDB_DISABLED"] = "true"
         
-    def run(self):
-        # Start Training/Testing
-        
         model_name_list = ['PRG_MoE_parallel_gpu2']
         log_directory_list = ['logs/train_PRG_MoE_General(bert-base-unfreezed 3)']
         
-        self.args.gpus = self.args.gpus.split(',')
-        self.args.gpus = [int(_) for _ in self.args.gpus]
+        if type(self.args.gpus) == str:
+            self.args.gpus = self.args.gpus.split(',')
+            self.args.gpus = [int(_) for _ in self.args.gpus]
         encoder_name = self.args.encoder_name.replace('/', '_')  
         self.args.wandb_pjname = f'ECPE_{encoder_name}_lr{self.args.learning_rate}_Unfreze{self.args.unfreeze}_{self.args.data_label}'
         
@@ -104,6 +104,16 @@ class Main:
         self.args.valid_dataset = valid_dataset
         self.args.test_dataset = test_dataset
         self.args.data_label = data_label
+        
+    def set_gpus(self, gpus):
+        self.args.gpus = gpus
+    
+    def set_encoder_name(self, encoder_name):
+        self.args.encoder_name = encoder_name
+        
+    def set_test(self, ckpt_path):
+        self.args.test = True
+        self.pretrained_model = ckpt_path
     
 if __name__ == "__main__":
     main = Main()

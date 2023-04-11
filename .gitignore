@@ -1,5 +1,8 @@
 # Logs
 lightning_logs
 logs
-./module/__pycache__
-run.sh
+
+# Caches
+_*
+*.pyc
+**/__pycache__/

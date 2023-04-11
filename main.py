@@ -21,7 +21,6 @@ def set_random_seed(seed: int):
     torch.cuda.manual_seed(random_seed)
     torch.cuda.manual_seed_all(random_seed)
 
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='This code is for ECPE task.')
 
@@ -72,33 +71,41 @@ def test_preconditions(args: argparse.Namespace):
         assert args.pretrained_model is not None, "For test, you should load pretrained model."
 
 
-def main():
-    load_dotenv()
-    args = parse_args()
-    test_preconditions(args)
-    set_random_seed(77)
+class Main:
+    def __init__(self):
+        load_dotenv()
+        self.args = parse_args()
+        test_preconditions(self.args)
+        set_random_seed(77)
+        
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join([str(_) for _ in self.args.gpus])
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # ignore TensorFlow error message 
+        os.environ["WANDB_DISABLED"] = "true"
+        
+    def run(self):
+        # Start Training/Testing
+        
+        model_name_list = ['PRG_MoE_parallel_gpu2']
+        log_directory_list = ['logs/train_PRG_MoE_General(bert-base-unfreezed 3)']
+        
+        self.args.gpus = self.args.gpus.split(',')
+        self.args.gpus = [int(_) for _ in self.args.gpus]
+        encoder_name = self.args.encoder_name.replace('/', '_')  
+        self.args.wandb_pjname = f'ECPE_{encoder_name}_lr{self.args.learning_rate}_Unfreze{self.args.unfreeze}_{self.args.data_label}'
+        
+        trainer = LearningEnv(**vars(self.args))
+        trainer.run(**vars(self.args))
+        del trainer
+        
+        torch.cuda.empty_cache()
     
-    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join([str(_) for _ in args.gpus])
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # ignore TensorFlow error message 
-    os.environ["WANDB_DISABLED"] = "true"
-    
-    model_name_list = ['PRG_MoE_parallel_gpu2']
-    log_directory_list = ['logs/train_PRG_MoE_General(bert-base-unfreezed 3)']
-    
-    args.gpus = args.gpus.split(',')
-    args.gpus = [int(_) for _ in args.gpus]
-    
-    encoder_name = args.encoder_name.replace('/', '_')  
-    args.wandb_pjname = f'ECPE_{encoder_name}_lr{args.learning_rate}_Unfreze{args.unfreeze}_{args.data_label}'
-    
-    
-    trainer = LearningEnv(**vars(args))
-    trainer.run(**vars(args))
-
-    del trainer
-    print(args)
-    torch.cuda.empty_cache()
-    
+    def set_dataset(self, train_dataset, valid_dataset, test_dataset, data_label):
+        self.args.train_dataset = train_dataset
+        self.args.valid_dataset = valid_dataset
+        self.args.test_dataset = test_dataset
+        self.args.data_label = data_label
     
 if __name__ == "__main__":
-    main()
+    main = Main()
+    main.run()
+    

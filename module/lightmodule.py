@@ -14,7 +14,7 @@ class LitPRGMoE(pl.LightningModule):
         
         # Model Setting and Parameters
         self.encoder_name = kwargs['encoder_name']
-        self.unfreeze = kwargs['unfreeze']
+        self.num_unfreeze = kwargs['unfreeze']
         self.only_emotion = False
         self.n_cause = kwargs['n_cause']
         self.dropout = kwargs['dropout']
@@ -49,42 +49,6 @@ class LitPRGMoE(pl.LightningModule):
                     param.requires_grad = False
         
         self.dropout = nn.Dropout(self.dropout)
-    
-    def forward(self, batch):
-        utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
-        input_ids = utterance_input_ids_batch.view(-1, max_seq_len)
-        attention_mask = utterance_attention_mask_batch.view(-1, max_seq_len)
-        token_type_ids = utterance_token_type_ids_batch.view(-1, max_seq_len)
-        speaker_ids = speaker_batch
-        
-        batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
-        
-        _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
-                                    attention_mask=attention_mask.view(-1, max_seq_len),
-                                    token_type_ids=token_type_ids.view(-1, max_seq_len),
-                                    max_seq_len=max_seq_len)
-        
-        utterance_representation = self.dropout(pooled_output)
-        emotion_pred = self.emotion_linear(utterance_representation)
-        
-        if self.only_emotion: # only_emotion인 경우는 가짜 아웃풋으로 때움 (cause 부분)
-            cause_pred = torch.zeros(int((max_doc_len)*(max_doc_len+1)/2*batch_size)*2).view(-1,2).to(input_ids.device)
-        else:  
-            pair_embedding = self.get_pair_embedding(emotion_pred, input_ids, attention_mask, token_type_ids, speaker_ids)
-            gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach())
-
-            gating_prob = self.guiding_lambda * self.get_subtask_label(
-                input_ids, speaker_ids, emotion_pred).view(-1, self.n_expert) + (1 - self.guiding_lambda) * gating_prob
-
-            pred = []
-            for _ in range(self.n_expert):
-                expert_pred = self.cause_linear[_](pair_embedding.view(-1, pair_embedding.shape[-1]))
-                expert_pred *= gating_prob.view(-1,self.n_expert)[:, _].unsqueeze(-1)
-                pred.append(expert_pred)
-
-            cause_pred = sum(pred)
-            
-        return emotion_pred, cause_pred
         
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.
@@ -93,24 +57,25 @@ class LitPRGMoE(pl.LightningModule):
         # >< forward pass
         batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
         
-        input_ids = utterance_input_ids_batch.view(-1, max_seq_len)
-        attention_mask = utterance_attention_mask_batch.view(-1, max_seq_len)
-        token_type_ids = utterance_token_type_ids_batch.view(-1, max_seq_len)
+        input_ids = utterance_input_ids_batch
+        attention_mask = utterance_attention_mask_batch
+        token_type_ids = utterance_token_type_ids_batch
         speaker_ids = speaker_batch
         
         _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
-                                    attention_mask=attention_mask.view(-1, max_seq_len))
+                                    attention_mask=attention_mask.view(-1, max_seq_len),
+                                    return_dict=False)
         # ,
         #                             token_type_ids=token_type_ids.view(-1, max_seq_len),
         #                             max_seq_len=max_seq_len)
         
         utterance_representation = self.dropout(pooled_output)
-        emotion_pred = self.emotion_linear(utterance_representation)
+        emotion_prediction = self.emotion_linear(utterance_representation)
         
         if self.only_emotion: # only_emotion인 경우는 가짜 아웃풋으로 때움 (cause 부분)
             cause_pred = torch.zeros(int((max_doc_len)*(max_doc_len+1)/2*batch_size)*2).view(-1,2).to(input_ids.device)
         else:  
-            pair_embedding = self.get_pair_embedding(emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
+            pair_embedding = self.get_pair_embedding(pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
             gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach())
 
             gating_prob = self.guiding_lambda * self.get_subtask_label(
@@ -124,9 +89,9 @@ class LitPRGMoE(pl.LightningModule):
 
             cause_pred = sum(pred)
         
-        prediction = emotion_pred, cause_pred
+        prediction = emotion_prediction, cause_pred
         emotion_prediction, binary_cause_prediction = prediction
-                
+        
         # Output processing
         check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=3, emotion_pred=emotion_prediction)
         check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
@@ -158,8 +123,82 @@ class LitPRGMoE(pl.LightningModule):
             criterion_emo = FocalLoss(gamma=2)
             loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
             loss = loss_emo
-                
+        return loss
 
+    def test_step(self, batch, batch_idx):
+        utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
+        
+        batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
+        
+        input_ids = utterance_input_ids_batch
+        attention_mask = utterance_attention_mask_batch
+        token_type_ids = utterance_token_type_ids_batch
+        speaker_ids = speaker_batch
+        
+        _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
+                                    attention_mask=attention_mask.view(-1, max_seq_len),
+                                    max_seq_len=max_seq_len,
+                                    return_dict=False)
+        # ,
+        #                             token_type_ids=token_type_ids.view(-1, max_seq_len),
+        #                             max_seq_len=max_seq_len)
+        
+        utterance_representation = self.dropout(pooled_output)
+        emotion_prediction = self.emotion_linear(utterance_representation)
+        
+        if self.only_emotion: # only_emotion인 경우는 가짜 아웃풋으로 때움 (cause 부분)
+            cause_pred = torch.zeros(int((max_doc_len)*(max_doc_len+1)/2*batch_size)*2).view(-1,2).to(input_ids.device)
+        else:  
+            pair_embedding = self.get_pair_embedding(pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
+            gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach())
+
+            gating_prob = self.guiding_lambda * self.get_subtask_label(
+                input_ids, speaker_ids, emotion_prediction).view(-1, self.n_expert) + (1 - self.guiding_lambda) * gating_prob
+
+            pred = []
+            for _ in range(self.n_expert):
+                expert_pred = self.cause_linear[_](pair_embedding.view(-1, pair_embedding.shape[-1]))
+                expert_pred *= gating_prob.view(-1,self.n_expert)[:, _].unsqueeze(-1)
+                pred.append(expert_pred)
+
+            cause_pred = sum(pred)
+        
+        prediction = emotion_prediction, cause_pred
+        emotion_prediction, binary_cause_prediction = prediction
+        
+        # Output processing
+        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=3, emotion_pred=emotion_prediction)
+        check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
+        check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.encoder_name)
+
+        # Emotion prediction, label
+        emotion_prediction = emotion_prediction[(check_pad_idx != False).nonzero(as_tuple=True)]
+        emotion_label_batch = emotion_label_batch.view(-1)[(check_pad_idx != False).nonzero(as_tuple=True)]
+        
+        # Cause prediction, label
+        pair_binary_cause_prediction_window = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_window_idx != False).nonzero(as_tuple=True)]
+        pair_binary_cause_prediction_all = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
+        
+        pair_binary_cause_label_batch_window = pair_binary_cause_label_batch[(check_pair_window_idx != False).nonzero(as_tuple=True)]
+        pair_binary_cause_label_batch_all = pair_binary_cause_label_batch[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
+        
+        # Loss Calculation
+        if self.train_type == 'cause':
+            criterion_emo = FocalLoss(gamma=2)
+            criterion_cau = FocalLoss(gamma=2)
+            
+            loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
+            if (torch.sum(check_pair_window_idx)==0):
+                loss_cau = torch.tensor(0.0)
+            else:
+                loss_cau = criterion_cau(pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
+            loss = 0.2 * loss_emo + 0.8 * loss_cau
+        elif self.train_type == 'emotion':
+            criterion_emo = FocalLoss(gamma=2)
+            loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
+            loss = loss_emo
+        self.log("test_loss: ", loss)
+    
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
         scheduler = get_cosine_schedule_with_warmup(optimizer=optimizer,
@@ -169,14 +208,14 @@ class LitPRGMoE(pl.LightningModule):
         return [optimizer], [scheduler]
         
         
-    def get_pair_embedding(self, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids):
+    def get_pair_embedding(self, pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids):
         batch_size, max_doc_len, max_seq_len = input_ids.shape
 
         # 이 부분 encoder 안 돌리게 최적화 가능한가?
-        _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len), 
-                                        attention_mask=attention_mask.view(-1, max_seq_len), 
-                                        token_type_ids=token_type_ids.view(-1, max_seq_len), 
-                                        return_dict=False)
+        # _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len), 
+        #                                 attention_mask=attention_mask.view(-1, max_seq_len), 
+        #                                 token_type_ids=token_type_ids.view(-1, max_seq_len), 
+        #                                 return_dict=False)
         
         utterance_representation = self.dropout(pooled_output)
 
@@ -226,4 +265,40 @@ class LitPRGMoE(pl.LightningModule):
 
         return pair_info
     
-    
+    def forward(self, batch):
+        utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
+        
+        batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
+        
+        input_ids = utterance_input_ids_batch
+        attention_mask = utterance_attention_mask_batch
+        token_type_ids = utterance_token_type_ids_batch
+        speaker_ids = speaker_batch
+        
+        _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
+                                    attention_mask=attention_mask.view(-1, max_seq_len),
+                                    max_seq_len=max_seq_len,
+                                    return_dict=False)
+        
+        utterance_representation = self.dropout(pooled_output)
+        emotion_prediction = self.emotion_linear(utterance_representation)
+        
+        if self.only_emotion: # only_emotion인 경우는 가짜 아웃풋으로 때움 (cause 부분)
+            cause_pred = torch.zeros(int((max_doc_len)*(max_doc_len+1)/2*batch_size)*2).view(-1,2).to(input_ids.device)
+        else:  
+            pair_embedding = self.get_pair_embedding(pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
+            gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach())
+
+            gating_prob = self.guiding_lambda * self.get_subtask_label(
+                input_ids, speaker_ids, emotion_prediction).view(-1, self.n_expert) + (1 - self.guiding_lambda) * gating_prob
+
+            pred = []
+            for _ in range(self.n_expert):
+                expert_pred = self.cause_linear[_](pair_embedding.view(-1, pair_embedding.shape[-1]))
+                expert_pred *= gating_prob.view(-1,self.n_expert)[:, _].unsqueeze(-1)
+                pred.append(expert_pred)
+
+            cause_pred = sum(pred)
+        
+        prediction = emotion_prediction, cause_pred
+        return prediction

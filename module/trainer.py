@@ -33,6 +33,7 @@ class LearningEnv:
         
         self.gpus = kwargs['gpus']
         self.single_gpu = len(self.gpus) == 1
+        self.num_worker = kwargs['num_worker']
 
         self.train_dataset = kwargs['train_data']
         self.valid_dataset = kwargs['valid_data']
@@ -150,7 +151,7 @@ class LearningEnv:
             self.training_iter = 1
             self.valid(type='test')
         else:
-            self.train_Trainer()
+            self.train()
     
     def pre_setting(self):
         # 로그 폴더 생성 및 로거 설정
@@ -172,118 +173,20 @@ class LearningEnv:
         self.set_model()
     
         
-    def train_Trainer(self, train_type='cause'):
+    def train(self, train_type='cause'):
         logger = logging.getLogger('train')
         
         train_dataset_custom = CustomDataset(self.train_dataset, max_seq_len=self.max_seq_len, encoder_name=self.encoder_name, contain_context=self.contain_context)
         valid_dataset_custom = CustomDataset(self.valid_dataset, max_seq_len=self.max_seq_len, encoder_name=self.encoder_name, contain_context=self.contain_context)
         test_dataset_custom = CustomDataset(self.test_dataset, max_seq_len=self.max_seq_len, encoder_name=self.encoder_name, contain_context=self.contain_context)
         
-        train_dataloader = DataLoader(train_dataset_custom, batch_size=self.batch_size)
-        valid_dataloader = DataLoader(valid_dataset_custom, batch_size=64)
-        
-        
-        model = LitPRGMoE(**self.model_args)
-        trainer = L.Trainer()
-        trainer.fit(model, train_dataloaders=train_dataloader)
-        
-        
-    def train(self, type='cause'):
-        if self.only_emotion:
-            type = 'emotion'
-        
-        logger = logging.getLogger('train')
-        optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate, eps=1e-8)
-        
-        scheduler = get_cosine_schedule_with_warmup(optimizer=optimizer,
-                                                    num_warmup_steps=5,
-                                                    num_training_steps=self.training_iter,
-                                                    ) # 코사인 어닐링 스케줄러 사용
-        # scheduler = optim.lr_scheduler.LambdaLR(optimizer=optimizer, # 람다 스케줄러 사용
-        #                                         lr_lambda=lambda epoch: 0.95 ** epoch,
-        #                                         last_epoch=-1,
-        #                                         verbose=False)
-        train_dataloader = self.get_dataloader(self.train_dataset, self.batch_size, self.num_worker)
-        for i in range(self.training_iter):
-            self.model.train()
-            
-            loss_overall = 0.0 # logging에 쓸 loss 값 저장용
-            loss_wandb = 0.0
-            loss_avg, count= 0, 0
-            emo_pred_y_list, emo_true_y_list, cau_pred_y_list_all, cau_true_y_list_all, cau_pred_y_list, cau_true_y_list = [list() for _ in range(6)]            
-            
-            for utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch in tqdm(train_dataloader, desc=f"Train | Epoch {i+1}"):
-                batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
-                
-                # Get Model output  
-                prediction = self.model(
-                                    utterance_input_ids_batch, 
-                                    utterance_attention_mask_batch, 
-                                    utterance_token_type_ids_batch, 
-                                    speaker_batch
-                                    )
-                emotion_prediction, binary_cause_prediction = prediction
-                
-                # Output processing
-                check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=3, emotion_pred=emotion_prediction)
-                check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
-                check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.encoder_name)
-
-                # Emotion prediction, label
-                emotion_prediction = emotion_prediction[(check_pad_idx != False).nonzero(as_tuple=True)]
-                emotion_label_batch = emotion_label_batch.view(-1)[(check_pad_idx != False).nonzero(as_tuple=True)]
-                
-                # Cause prediction, label
-                pair_binary_cause_prediction_window = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_window_idx != False).nonzero(as_tuple=True)]
-                pair_binary_cause_prediction_all = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
-                
-                pair_binary_cause_label_batch_window = pair_binary_cause_label_batch[(check_pair_window_idx != False).nonzero(as_tuple=True)]
-                pair_binary_cause_label_batch_all = pair_binary_cause_label_batch[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
-                
-                device = torch.device("cuda")
-                
-                # Loss Calculation
-                if type == 'cause':
-                    criterion_emo = FocalLoss(gamma=2)
-                    criterion_cau = FocalLoss(gamma=2)
+        train_dataloader = DataLoader(train_dataset_custom, batch_size=self.batch_size, num_workers=self.num_worker)
+        valid_dataloader = DataLoader(valid_dataset_custom, batch_size=64, num_workers=self.num_worker)
+        test_dataloader = DataLoader(test_dataset_custom, batch_size=64, num_workers=self.num_worker)
                     
-                    loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
-                    if (torch.sum(check_pair_window_idx)==0):
-                        loss_cau = torch.tensor(0.0)
-                    else:
-                        loss_cau = criterion_cau(pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
-                    loss = 0.2 * loss_emo + 0.8 * loss_cau
-                elif type == 'emotion':
-                    criterion_emo = FocalLoss(gamma=2)
-                    loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
-                    loss = loss_emo
-                
-                # Backpropagation
-                optimizer.zero_grad()
-                loss.backward() 
-                optimizer.step()
-
-                # Logging
-                cau_pred_y_list_all.append(pair_binary_cause_prediction_all), cau_true_y_list_all.append(pair_binary_cause_label_batch_all)
-                cau_pred_y_list.append(pair_binary_cause_prediction_window), cau_true_y_list.append(pair_binary_cause_label_batch_window)
-                emo_pred_y_list.append(emotion_prediction), emo_true_y_list.append(emotion_label_batch)
-
-                loss_avg += loss.item()
-                count += 1
-                
-            logger.info(f'\nEpoch: [{self.num_epoch}/{self.training_iter}]')
-            p_cau, r_cau, f1_cau = log_metrics(logger, emo_pred_y_list, emo_true_y_list, cau_pred_y_list, cau_true_y_list, cau_pred_y_list_all, cau_true_y_list_all, loss_avg, n_cause=self.n_cause, option='train')
-    
-            scheduler.step()
-            loss_avg = loss_avg / count
-            self.saver(self.model)
-            
-            # Epoch마다 valid, test 시행
-            self.valid()
-            self.valid(option='test')
-            
-            self.num_epoch += 1
-            
+        model = LitPRGMoE(**self.model_args)
+        trainer = L.Trainer(max_epochs=8)
+        trainer.fit(model, train_dataloaders=train_dataloader)
     
     def valid(self, type='cause', option='valid'):
         if self.only_emotion:

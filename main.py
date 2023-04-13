@@ -82,6 +82,7 @@ class Main:
         # Start Training/Testing
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join([str(_) for _ in self.args.gpus])
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # ignore TensorFlow error message 
+        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         os.environ["WANDB_DISABLED"] = "true"
         
         model_name_list = ['PRG_MoE_parallel_gpu2']
@@ -100,9 +101,9 @@ class Main:
         torch.cuda.empty_cache()
     
     def set_dataset(self, train_dataset, valid_dataset, test_dataset, data_label):
-        self.args.train_dataset = train_dataset
-        self.args.valid_dataset = valid_dataset
-        self.args.test_dataset = test_dataset
+        self.args.train_data = train_dataset
+        self.args.valid_data = valid_dataset
+        self.args.test_data = test_dataset
         self.args.data_label = data_label
         
     def set_gpus(self, gpus):

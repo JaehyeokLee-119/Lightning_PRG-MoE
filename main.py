@@ -85,15 +85,14 @@ class Main:
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         os.environ["WANDB_DISABLED"] = "true"
         
-        model_name_list = ['PRG_MoE_parallel_gpu2']
-        log_directory_list = ['logs/train_PRG_MoE_General(bert-base-unfreezed 3)']
-        
-        if type(self.args.gpus) == str:
+        if type(self.args.gpus) == str: # gpu가 문자열이면 list로 파싱
             self.args.gpus = self.args.gpus.split(',')
             self.args.gpus = [int(_) for _ in self.args.gpus]
+            
         encoder_name = self.args.encoder_name.replace('/', '_')  
         self.args.wandb_pjname = f'ECPE_{encoder_name}_lr{self.args.learning_rate}_Unfreze{self.args.unfreeze}_{self.args.data_label}'
         
+        # 실행
         trainer = LearningEnv(**vars(self.args))
         trainer.run(**vars(self.args))
         del trainer
@@ -115,6 +114,10 @@ class Main:
     def set_test(self, ckpt_path):
         self.args.test = True
         self.pretrained_model = ckpt_path
+    
+    def set_hyperparameters(self, learning_rate, batch_size):
+        self.args.learning_rate = learning_rate
+        self.args.batch_size = batch_size
     
 if __name__ == "__main__":
     main = Main()

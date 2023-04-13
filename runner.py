@@ -7,11 +7,11 @@ if __name__ == "__main__":
     os.environ['TOKENIZERS_PARALLELISM'] = 'false'
     torch.set_float32_matmul_precision('high')
 
-    # Original Dataset (1 fold)
-    train_data_list = ['data/data_fold/data_0/dailydialog_train.json']
-    valid_data_list = ['data/data_fold/data_0/dailydialog_valid.json']
-    test_data_list = ['data/data_fold/data_0/dailydialog_test.json']
-    data_label = ['-original_fold']
+    # # Original Dataset (1 fold)
+    # train_data_list = ['data/data_fold/data_0/dailydialog_train.json']
+    # valid_data_list = ['data/data_fold/data_0/dailydialog_valid.json']
+    # test_data_list = ['data/data_fold/data_0/dailydialog_test.json']
+    # data_label = ['-original_fold']
     
     # # Mini Dataset (1 fold)
     # train_data_list = ['data/data_mini/dailydialog_train.json']
@@ -19,13 +19,29 @@ if __name__ == "__main__":
     # test_data_list = ['data/data_mini/dailydialog_test.json']
     # data_label = ['-original_mini']
     
+    # Another folds
+    fold_ = 1
+    train_data_list = [
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_train.json']
+    ]
+    valid_data_list = [
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_valid.json']
+    ]
+    test_data_list = [
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_test.json']
+    ]
+    data_label = [* [f'-data_{fold_}_DailyDialog']]
+    
+    lr = 5e-5
+    batch_size = 2
     gpus = [1]
-    encoder_name = 'roberta-large'
+    encoder_name = 'bert-base-cased'
     for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, data_label):
         runner = main.Main()
         runner.set_dataset(tr, va, te, dl)
         runner.set_gpus(gpus)
         runner.set_encoder_name(encoder_name)
+        runner.set_hyperparameters(learning_rate=lr, batch_size=batch_size)
         # runner.set_test(ckpt_path='lightning_logs/version_0/checkpoints/epoch=7-step=3336.ckpt')
         runner.run()
         

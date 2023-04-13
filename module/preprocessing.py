@@ -91,7 +91,8 @@ def get_data(data_file, device, max_seq_len, encoder_name, contain_context=False
 
     out_speaker, out_emotion_label = torch.stack(out_speaker).type(torch.FloatTensor), torch.stack(out_emotion_label)
 
-    return preprocessed_utterance, out_speaker.to(device), out_emotion_label.to(device), out_pair_cause_label.to(device), out_pair_binary_cause_label.to(device)
+    # return preprocessed_utterance, out_speaker.to(device), out_emotion_label.to(device), out_pair_cause_label.to(device), out_pair_binary_cause_label.to(device)
+    return preprocessed_utterance, out_speaker, out_emotion_label, out_pair_cause_label, out_pair_binary_cause_label
 
 def load_utterance(data_file, device, max_seq_len, encoder_name):
     f = open(data_file)
@@ -159,8 +160,7 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
             return context
         
         return context
-
-
+    
     f = open(data_file)
     data = json.load(f)
     f.close()
@@ -211,7 +211,10 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
         out_utterance_token_type_ids.append(utterance_token_type_ids_t)
 
     out_utterance_input_ids, out_utterance_attention_mask, out_utterance_token_type_ids = torch.stack(out_utterance_input_ids), torch.stack(out_utterance_attention_mask), torch.stack(out_utterance_token_type_ids)
-    return (out_utterance_input_ids.to(device), out_utterance_attention_mask.to(device), out_utterance_token_type_ids.to(device)), max_doc_len, max_seq_len
+    # return (out_utterance_input_ids.to(device), out_utterance_attention_mask.to(device), out_utterance_token_type_ids.to(device)), max_doc_len, max_seq_len
+    
+    # device로 보내는 옵션을 해제 ( CUDA error: initialization error 때문에 )
+    return (out_utterance_input_ids, out_utterance_attention_mask, out_utterance_token_type_ids), max_doc_len, max_seq_len
 
 def tokenize_conversation(conversation, device, max_seq_len, encoder_name):
     tokenizer_ = AutoTokenizer.from_pretrained(encoder_name)

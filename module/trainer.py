@@ -7,16 +7,10 @@ import torch
 import torch.optim as optim
 from tqdm import tqdm
 from torch.utils.data import TensorDataset, DataLoader
-import torch.distributed as dist
 
 from module.lightmodule import LitPRGMoE
 
-from transformers import get_cosine_schedule_with_warmup, get_cosine_with_hard_restarts_schedule_with_warmup
-from transformers import AdamW, get_linear_schedule_with_warmup
-from peft import get_peft_config, get_peft_model, LoraConfig, TaskType
-import module.model as M
-from module.evaluation import log_metrics, FocalLoss
-from module.preprocessing import get_data, tokenize_conversation, get_pad_idx, get_pair_pad_idx
+from module.preprocessing import get_data
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # ignore TF error message 
@@ -82,19 +76,15 @@ class LearningEnv:
             "training_iter": self.training_iter,
         }
 
-    def __set_model__(self):
-        model_args = self.model_args
-
-        if self.pretrained_model is not None:
-            model = getattr(M, self.model_name)(**model_args)
-            model.load_state_dict(torch.load(self.pretrained_model))
-        else:
-            model = getattr(M, self.model_name)(**model_args)
-
-        return model
-
     def set_model(self):
-        self.model = self.__set_model__()
+        # self.model = LitPRGMoE
+        if self.pretrained_model is not None:
+            model = LitPRGMoE(**self.model_args)
+            model = model.load_from_checkpoint(self.pretrained_model)
+        else:
+            model = LitPRGMoE(**self.model_args)
+        self.model = model
+        
     
     def run(self, **kwargs):
         self.pre_setting()
@@ -116,9 +106,6 @@ class LearningEnv:
         # 모델 저장할 폴더 생성
         if not os.path.exists("model/"):
             os.makedirs("model/")
-            
-        # 모델 저장기를 설정
-        self.saver = ModelSaver(path=f"model/{encoder_name}-{self.data_label}-lr_{self.learning_rate}-Unfreeze{self.unfreeze}.pt", single_gpu=self.single_gpu)
         
         # 모델 인스턴스를 셋팅
         self.set_model()
@@ -131,17 +118,21 @@ class LearningEnv:
         valid_dataloader = self.get_dataloader(self.valid_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
         
-        model = LitPRGMoE(**self.model_args)
-        trainer = L.Trainer(max_epochs=self.training_iter, strategy='ddp_find_unused_parameters_true')
-        trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
-        trainer.validate(model, dataloaders=valid_dataloader)
-        trainer.test(model, dataloaders=test_dataloader)
+        trainer_config = {
+            "max_epochs": self.training_iter,
+            "strategy": 'ddp_find_unused_parameters_true',
+            "check_val_every_n_epoch": 1,
+            
+        }
+        trainer = L.Trainer(**trainer_config)
+        trainer.fit(self.model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
+        trainer.validate(self.model, dataloaders=valid_dataloader)
+        trainer.test(self.model, dataloaders=test_dataloader)
     
     def test(self):
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
-        model = LitPRGMoE(**self.model_args).load_from_checkpoint(self.pretrained_model)
         trainer = L.Trainer(max_epochs=self.training_iter, strategy='ddp_find_unused_parameters_true')
-        trainer.test(model, dataloaders=test_dataloader)
+        trainer.test(self.model, dataloaders=test_dataloader)
     
     
     
@@ -178,6 +169,7 @@ class LearningEnv:
         dataloader_params = {
             "dataset": dataset_,
             "batch_size": batch_size,
+            "num_workers": num_worker,
             # "shuffle": shuffle
         }
         

@@ -1,7 +1,6 @@
 import lightning as pl
 import torch
 import torch.nn.functional as F
-import module.model as model
 import torch.nn as nn
 from module.evaluation import FocalLoss
 from module.preprocessing import get_pair_pad_idx, get_pad_idx
@@ -24,6 +23,7 @@ class LitPRGMoE(pl.LightningModule):
         self.learning_rate = kwargs['learning_rate']
         self.training_iter = kwargs['training_iter']
         
+        self.window_size = 3
         self.n_expert = 4
         self.n_emotion = 7
         self.guiding_lambda = kwargs['guiding_lambda']
@@ -34,7 +34,32 @@ class LitPRGMoE(pl.LightningModule):
             self.is_bert_like = False
         
         self.train_type = 'cause'
+        
+        # Dictionaries for logging
+        types = ['train', 'valid', 'test']
+        self.emo_pred_y_list = {}
+        self.emo_true_y_list = {}
+        self.cau_pred_y_list = {}
+        self.cau_true_y_list = {}
+        self.cau_pred_y_list_all = {}
+        self.cau_true_y_list_all = {}
+        self.loss_sum = {}
+        self.batch_count = {}
+        
+        for i in types:
+            self.emo_pred_y_list[i] = []
+            self.emo_true_y_list[i] = []
+            self.cau_pred_y_list[i] = []
+            self.cau_true_y_list[i] = []
+            self.cau_pred_y_list_all[i] = []
+            self.cau_true_y_list_all[i] = []
+            self.loss_sum[i] = 0.0
+            self.batch_count[i] = 0
                 
+        
+        
+        
+        
         # Model
         self.encoder = AutoModel.from_pretrained(self.encoder_name)
         self.emotion_linear = nn.Linear(self.encoder.config.hidden_size, self.n_emotion)
@@ -53,60 +78,54 @@ class LitPRGMoE(pl.LightningModule):
         
         self.dropout = nn.Dropout(self.dropout)
         
-    def training_step(self, batch, batch_idx):
-        # training_step defines the train loop.
+    def forward(self, batch):
         utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
+        
         batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
         
-        emotion_prediction, binary_cause_prediction = self.forward(batch)
+        input_ids = utterance_input_ids_batch
+        attention_mask = utterance_attention_mask_batch
+        token_type_ids = utterance_token_type_ids_batch
+        speaker_ids = speaker_batch
         
-        # Output processing
-        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=3, emotion_pred=emotion_prediction)
-        check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
-        check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.encoder_name)
+        _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
+                                    attention_mask=attention_mask.view(-1, max_seq_len),
+                                    return_dict=False)
+        
+        utterance_representation = self.dropout(pooled_output)
+        emotion_prediction = self.emotion_linear(utterance_representation)
+        
+        if self.only_emotion: # only_emotion인 경우는 가짜 아웃풋으로 때움 (cause 부분)
+            cause_pred = torch.zeros(int((max_doc_len)*(max_doc_len+1)/2*batch_size)*2).view(-1,2).to(input_ids.device)
+        else:  
+            pair_embedding = self.get_pair_embedding(pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
+            gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach())
 
-        # Emotion prediction, label
-        emotion_prediction = emotion_prediction[(check_pad_idx != False).nonzero(as_tuple=True)]
-        emotion_label_batch = emotion_label_batch.view(-1)[(check_pad_idx != False).nonzero(as_tuple=True)]
+            gating_prob = self.guiding_lambda * self.get_subtask_label(
+                input_ids, speaker_ids, emotion_prediction).view(-1, self.n_expert) + (1 - self.guiding_lambda) * gating_prob
+
+            pred = []
+            for _ in range(self.n_expert):
+                expert_pred = self.cause_linear[_](pair_embedding.view(-1, pair_embedding.shape[-1]))
+                expert_pred *= gating_prob.view(-1,self.n_expert)[:, _].unsqueeze(-1)
+                pred.append(expert_pred)
+
+            cause_pred = sum(pred)
         
-        # Cause prediction, label
-        pair_binary_cause_prediction_window = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_window_idx != False).nonzero(as_tuple=True)]
-        # pair_binary_cause_prediction_all = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
-        
-        pair_binary_cause_label_batch_window = pair_binary_cause_label_batch[(check_pair_window_idx != False).nonzero(as_tuple=True)]
-        # pair_binary_cause_label_batch_all = pair_binary_cause_label_batch[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
-        
-        # Loss Calculation
-        if self.train_type == 'cause':
-            criterion_emo = FocalLoss(gamma=2)
-            criterion_cau = FocalLoss(gamma=2)
-            
-            loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
-            if (torch.sum(check_pair_window_idx)==0):
-                loss_cau = torch.tensor(0.0)
-            else:
-                loss_cau = criterion_cau(pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
-            loss = 0.2 * loss_emo + 0.8 * loss_cau
-        elif self.train_type == 'emotion':
-            criterion_emo = FocalLoss(gamma=2)
-            loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
-            loss = loss_emo
-        return loss
+        prediction = emotion_prediction, cause_pred
+        return prediction
     
-    def validation_step(self, batch, batch_idx):
-        utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
-        
-        batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
-        emotion_prediction, binary_cause_prediction = self.forward(batch)
-        
+    def output_processing(self, utterance_input_ids_batch, pair_binary_cause_label_batch, emotion_label_batch, emotion_prediction, binary_cause_prediction):
+        # 모델의 forward 결과로부터 loss 계산과 로깅을 위한 input 6개를 구해 리턴
+        batch_size, _, _ = utterance_input_ids_batch.shape
         # Output processing
-        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=3, emotion_pred=emotion_prediction)
+        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction)
         check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
         check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.encoder_name)
 
         # Emotion prediction, label
-        emotion_prediction = emotion_prediction[(check_pad_idx != False).nonzero(as_tuple=True)]
-        emotion_label_batch = emotion_label_batch.view(-1)[(check_pad_idx != False).nonzero(as_tuple=True)]
+        emotion_prediction_filtered = emotion_prediction[(check_pad_idx != False).nonzero(as_tuple=True)]
+        emotion_label_batch_filtered = emotion_label_batch.view(-1)[(check_pad_idx != False).nonzero(as_tuple=True)]
         
         # Cause prediction, label
         pair_binary_cause_prediction_window = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_window_idx != False).nonzero(as_tuple=True)]
@@ -115,80 +134,152 @@ class LitPRGMoE(pl.LightningModule):
         pair_binary_cause_label_batch_window = pair_binary_cause_label_batch[(check_pair_window_idx != False).nonzero(as_tuple=True)]
         pair_binary_cause_label_batch_all = pair_binary_cause_label_batch[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
         
-        # Loss Calculation
+        return (emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window,
+                pair_binary_cause_prediction_all, pair_binary_cause_label_batch_window, pair_binary_cause_label_batch_all)
+    
+    def loss_calculation(self, emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window):
         if self.train_type == 'cause':
             criterion_emo = FocalLoss(gamma=2)
             criterion_cau = FocalLoss(gamma=2)
             
-            loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
-            if (torch.sum(check_pair_window_idx)==0):
-                loss_cau = torch.tensor(0.0)
-            else:
-                loss_cau = criterion_cau(pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
+            loss_emo = criterion_emo(emotion_prediction_filtered, emotion_label_batch_filtered)
+            loss_cau = criterion_cau(pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
             loss = 0.2 * loss_emo + 0.8 * loss_cau
         elif self.train_type == 'emotion':
             criterion_emo = FocalLoss(gamma=2)
-            loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
+            loss_emo = criterion_emo(emotion_prediction_filtered, emotion_label_batch_filtered)
             loss = loss_emo
+        return loss
+    
+    
+    def training_step(self, batch, batch_idx):
+        types = 'train'
+        # utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
+        utterance_input_ids_batch, _, _, _, emotion_label_batch, _, pair_binary_cause_label_batch = batch
+        
+        emotion_prediction, binary_cause_prediction = self.forward(batch)
+        
+        # Output processing
+        (emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window,
+                pair_binary_cause_prediction_all, pair_binary_cause_label_batch_window, pair_binary_cause_label_batch_all) = self.output_processing(utterance_input_ids_batch, pair_binary_cause_label_batch, emotion_label_batch, emotion_prediction, binary_cause_prediction)
+        # Logging
+        self.cau_pred_y_list_all[types].append(pair_binary_cause_prediction_all), self.cau_true_y_list_all[types].append(pair_binary_cause_label_batch_all)
+        self.cau_pred_y_list[types].append(pair_binary_cause_prediction_window), self.cau_true_y_list[types].append(pair_binary_cause_label_batch_window)
+        self.emo_pred_y_list[types].append(emotion_prediction_filtered), self.emo_true_y_list[types].append(emotion_label_batch_filtered)
+        
+        # Loss Calculation
+        loss = self.loss_calculation(emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
+        
+        self.loss_sum[types] += loss.item()
+        self.batch_count[types] += 1
+        
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        types = 'valid'
+        utterance_input_ids_batch, _, _, _, emotion_label_batch, _, pair_binary_cause_label_batch = batch
+        
+        emotion_prediction, binary_cause_prediction = self.forward(batch)
+        
+        # Output processing
+        (emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window,
+                pair_binary_cause_prediction_all, pair_binary_cause_label_batch_window, pair_binary_cause_label_batch_all) = self.output_processing(utterance_input_ids_batch, pair_binary_cause_label_batch, emotion_label_batch, emotion_prediction, binary_cause_prediction)
+        
+        # Loss Calculation
+        loss = self.loss_calculation(emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
+            
+        self.log("valid_loss: ", loss, sync_dist=True)
+        # Logging
+        self.cau_pred_y_list_all[types].append(pair_binary_cause_prediction_all), self.cau_true_y_list_all[types].append(pair_binary_cause_label_batch_all)
+        self.cau_pred_y_list[types].append(pair_binary_cause_prediction_window), self.cau_true_y_list[types].append(pair_binary_cause_label_batch_window)
+        self.emo_pred_y_list[types].append(emotion_prediction_filtered), self.emo_true_y_list[types].append(emotion_label_batch_filtered)
+        
+        self.loss_sum[types] += loss.item()
+        self.batch_count[types] += 1
+        
+    def test_step(self, batch, batch_idx):
+        types = 'test'
+        utterance_input_ids_batch, _, _, _, emotion_label_batch, _, pair_binary_cause_label_batch = batch
+        
+        emotion_prediction, binary_cause_prediction = self.forward(batch)
+        
+        # Output processing
+        (emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window,
+                pair_binary_cause_prediction_all, pair_binary_cause_label_batch_window, pair_binary_cause_label_batch_all) = self.output_processing(utterance_input_ids_batch, pair_binary_cause_label_batch, emotion_label_batch, emotion_prediction, binary_cause_prediction)
+        
+        # Loss Calculation
+        loss = self.loss_calculation(emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
+            
         self.log("test_loss: ", loss, sync_dist=True)
         # Logging
-        self.cau_pred_y_list_all.append(pair_binary_cause_prediction_all), self.cau_true_y_list_all.append(pair_binary_cause_label_batch_all)
-        self.cau_pred_y_list.append(pair_binary_cause_prediction_window), self.cau_true_y_list.append(pair_binary_cause_label_batch_window)
-        self.emo_pred_y_list.append(emotion_prediction), self.emo_true_y_list.append(emotion_label_batch)
+        self.cau_pred_y_list_all[types].append(pair_binary_cause_prediction_all), self.cau_true_y_list_all[types].append(pair_binary_cause_label_batch_all)
+        self.cau_pred_y_list[types].append(pair_binary_cause_prediction_window), self.cau_true_y_list[types].append(pair_binary_cause_label_batch_window)
+        self.emo_pred_y_list[types].append(emotion_prediction_filtered), self.emo_true_y_list[types].append(emotion_label_batch_filtered)
         
-        self.loss_sum += loss.item()
-        self.batch_count += 1
+        self.loss_sum[types] += loss.item()
+        self.batch_count[types] += 1
+
+    
 
     def on_train_epoch_start(self):
-        self.emo_pred_y_list = []
-        self.emo_true_y_list = []
-        self.cau_pred_y_list = []
-        self.cau_true_y_list = []
-        self.cau_pred_y_list_all = []
-        self.cau_true_y_list_all = []
-        self.loss_sum = 0.0
-        self.batch_count = 0
+        self.make_test_setting(types='train')
         print('\ntrain start\n')
         
     def on_train_epoch_end(self):
-        self.loss_avg = self.loss_sum / self.batch_count
-        emo_report, emo_metrics, acc_cau, p_cau, r_cau, f1_cau = self.log_metrics(self.emo_pred_y_list, self.emo_true_y_list, 
-                                                self.cau_pred_y_list, self.cau_true_y_list,
-                                                self.cau_pred_y_list_all, self.cau_true_y_list_all, 
-                                                self.loss_avg)
-        print(emo_report)
-        print(f'cause metrics: acc: {acc_cau}, p: {p_cau}, r: {r_cau}, f1: {f1_cau}')
-    
+        # self.loss_avg = self.loss_sum / self.batch_count
+        # emo_report, emo_metrics, acc_cau, p_cau, r_cau, f1_cau = self.log_metrics(self.emo_pred_y_list, self.emo_true_y_list, 
+        #                                         self.cau_pred_y_list, self.cau_true_y_list,
+        #                                         self.cau_pred_y_list_all, self.cau_true_y_list_all, 
+        #                                         self.loss_avg)
+        # print(emo_report)
+        # print(f'cause metrics: acc: {acc_cau}, p: {p_cau}, r: {r_cau}, f1: {f1_cau}')
+        self.log_test_result(types='train')
+        print('\ntrain end\n')
     
     def on_validation_epoch_start(self):
-        self.emo_pred_y_list = []
-        self.emo_true_y_list = []
-        self.cau_pred_y_list = []
-        self.cau_true_y_list = []
-        self.cau_pred_y_list_all = []
-        self.cau_true_y_list_all = []
-        self.loss_sum = 0.0
-        self.batch_count = 0
+        self.make_test_setting(types='valid')
         print('\nvalidation start\n')
 
     def on_validation_epoch_end(self):
-        self.loss_avg = self.loss_sum / self.batch_count
-        emo_report, emo_metrics, acc_cau, p_cau, r_cau, f1_cau = self.log_metrics(self.emo_pred_y_list, self.emo_true_y_list, 
-                                                self.cau_pred_y_list, self.cau_true_y_list,
-                                                self.cau_pred_y_list_all, self.cau_true_y_list_all, 
-                                                self.loss_avg)
-        self.log('binary_cause loss', self.loss_avg, sync_dist=True)
-        self.log('binary_cause accuracy', acc_cau, sync_dist=True)
-        self.log('binary_cause precision', p_cau, sync_dist=True)
-        self.log('binary_cause recall', r_cau, sync_dist=True)
-        self.log('binary_cause f1-score', f1_cau, sync_dist=True)
-        
-        self.log('emo_accuracy', emo_metrics[0], sync_dist=True)
-        self.log('emo_precision', emo_metrics[1], sync_dist=True)
-        self.log('emo_recall', emo_metrics[2], sync_dist=True)
-        self.log('emo_f1-score', emo_metrics[3], sync_dist=True)
-        print(emo_report)
+        self.log_test_result(types='valid')
         print('\nvalidation end\n')
+    
+    def on_test_epoch_start(self):
+        self.make_test_setting(types='test')
+        print('\ntest start\n')
+        
+    def on_test_epoch_end(self):
+        self.log_test_result(types='test')
+        print('\ntest end\n')
+        
+    def make_test_setting(self, types='train'):
+        self.emo_pred_y_list[types] = []
+        self.emo_true_y_list[types] = []
+        self.cau_pred_y_list[types] = []
+        self.cau_true_y_list[types] = []
+        self.cau_pred_y_list_all[types] = []
+        self.cau_true_y_list_all[types] = []
+        self.loss_sum[types] = 0.0
+        self.batch_count[types] = 0
+        
+    def log_test_result(self, types='train'):
+        loss_avg = self.loss_sum[types] / self.batch_count[types]
+        emo_report, emo_metrics, acc_cau, p_cau, r_cau, f1_cau = self.log_metrics(self.emo_pred_y_list[types], self.emo_true_y_list[types], 
+                                                self.cau_pred_y_list[types], self.cau_true_y_list[types],
+                                                self.cau_pred_y_list_all[types], self.cau_true_y_list_all[types], 
+                                                loss_avg)
+        self.log('binary_cause 1.loss', loss_avg, sync_dist=True)
+        self.log('binary_cause 2.accuracy', acc_cau, sync_dist=True)
+        self.log('binary_cause 3.precision', p_cau, sync_dist=True)
+        self.log('binary_cause 4.recall', r_cau, sync_dist=True)
+        self.log('binary_cause 5.f1-score', f1_cau, sync_dist=True)
+        
+        self.log('emo 1.accuracy', emo_metrics[0], sync_dist=True)
+        self.log('emo 2.precision', emo_metrics[1], sync_dist=True)
+        self.log('emo 3.recall', emo_metrics[2], sync_dist=True)
+        self.log('emo 4.f1-score', emo_metrics[3], sync_dist=True)
+        print(emo_report)
+        
     
     def log_metrics(self, emo_pred_y_list, emo_true_y_list, cau_pred_y_list, cau_true_y_list, cau_pred_y_list_all, cau_true_y_list_all, loss_avg):
         label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
@@ -220,61 +311,7 @@ class LitPRGMoE(pl.LightningModule):
             return only_emo_acc, only_emo_macro, only_emo_weighted # For only emotion
         elif self.train_type == 'cause':
             return emo_report_str, emo_metrics, acc_cau, p_cau, r_cau, f1_cau # For Cause
-        
-    def metrics_report(pred_y, true_y, label, get_dict=False, multilabel=False):
-        if multilabel:
-            pred_y, true_y = threshold_prediction(pred_y, true_y)
-            available_label = sorted(list(set((pred_y == True).nonzero()[:, -1].tolist() + (true_y == True).nonzero()[:, -1].tolist())))
-        else:
-            pred_y, true_y = argmax_prediction(pred_y, true_y)
-            available_label = sorted(list(set(true_y.tolist() + pred_y.tolist())))
 
-        class_name = list(label[available_label])
-        if get_dict:
-            return classification_report(true_y, pred_y, target_names=class_name, zero_division=0, digits=4, output_dict=True)
-        else:
-            return classification_report(true_y, pred_y, target_names=class_name, zero_division=0, digits=4)
-
-
-    def test_step(self, batch, batch_idx):
-        utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
-        
-        batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
-        emotion_prediction, binary_cause_prediction = self.forward(batch)
-        
-        # Output processing
-        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=3, emotion_pred=emotion_prediction)
-        check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
-        check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.encoder_name)
-
-        # Emotion prediction, label
-        emotion_prediction = emotion_prediction[(check_pad_idx != False).nonzero(as_tuple=True)]
-        emotion_label_batch = emotion_label_batch.view(-1)[(check_pad_idx != False).nonzero(as_tuple=True)]
-        
-        # Cause prediction, label
-        pair_binary_cause_prediction_window = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_window_idx != False).nonzero(as_tuple=True)]
-        pair_binary_cause_prediction_all = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
-        
-        pair_binary_cause_label_batch_window = pair_binary_cause_label_batch[(check_pair_window_idx != False).nonzero(as_tuple=True)]
-        pair_binary_cause_label_batch_all = pair_binary_cause_label_batch[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
-        
-        # Loss Calculation
-        if self.train_type == 'cause':
-            criterion_emo = FocalLoss(gamma=2)
-            criterion_cau = FocalLoss(gamma=2)
-            
-            loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
-            if (torch.sum(check_pair_window_idx)==0):
-                loss_cau = torch.tensor(0.0)
-            else:
-                loss_cau = criterion_cau(pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
-            loss = 0.2 * loss_emo + 0.8 * loss_cau
-        elif self.train_type == 'emotion':
-            criterion_emo = FocalLoss(gamma=2)
-            loss_emo = criterion_emo(emotion_prediction, emotion_label_batch)
-            loss = loss_emo
-        self.log("test_loss: ", loss)
-    
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
         scheduler = get_cosine_schedule_with_warmup(optimizer=optimizer,
@@ -341,43 +378,6 @@ class LitPRGMoE(pl.LightningModule):
 
         return pair_info
     
-    def forward(self, batch):
-        utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
-        
-        batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
-        
-        input_ids = utterance_input_ids_batch
-        attention_mask = utterance_attention_mask_batch
-        token_type_ids = utterance_token_type_ids_batch
-        speaker_ids = speaker_batch
-        
-        _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
-                                    attention_mask=attention_mask.view(-1, max_seq_len),
-                                    return_dict=False)
-        
-        utterance_representation = self.dropout(pooled_output)
-        emotion_prediction = self.emotion_linear(utterance_representation)
-        
-        if self.only_emotion: # only_emotion인 경우는 가짜 아웃풋으로 때움 (cause 부분)
-            cause_pred = torch.zeros(int((max_doc_len)*(max_doc_len+1)/2*batch_size)*2).view(-1,2).to(input_ids.device)
-        else:  
-            pair_embedding = self.get_pair_embedding(pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
-            gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach())
-
-            gating_prob = self.guiding_lambda * self.get_subtask_label(
-                input_ids, speaker_ids, emotion_prediction).view(-1, self.n_expert) + (1 - self.guiding_lambda) * gating_prob
-
-            pred = []
-            for _ in range(self.n_expert):
-                expert_pred = self.cause_linear[_](pair_embedding.view(-1, pair_embedding.shape[-1]))
-                expert_pred *= gating_prob.view(-1,self.n_expert)[:, _].unsqueeze(-1)
-                pred.append(expert_pred)
-
-            cause_pred = sum(pred)
-        
-        prediction = emotion_prediction, cause_pred
-        return prediction
-    
 def argmax_prediction(pred_y, true_y):
     pred_argmax = torch.argmax(pred_y, dim=1).cpu()
     true_y = true_y.cpu()
@@ -390,6 +390,7 @@ def threshold_prediction(pred_y, true_y):
 
 
 def metrics_report(pred_y, true_y, label, get_dict=False, multilabel=False):
+    true_y = true_y.view(-1)
     if multilabel:
         pred_y, true_y = threshold_prediction(pred_y, true_y)
         available_label = sorted(list(set((pred_y == True).nonzero()[:, -1].tolist() + (true_y == True).nonzero()[:, -1].tolist())))

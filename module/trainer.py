@@ -122,6 +122,8 @@ class LearningEnv:
             "max_epochs": self.training_iter,
             "strategy": 'ddp_find_unused_parameters_true',
             "check_val_every_n_epoch": 1,
+            "accumulate_grad_batches": 2,
+            "default_root_dir": self.log_directory,
             
         }
         trainer = L.Trainer(**trainer_config)

@@ -2,6 +2,7 @@ import lightning as pl
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
+import logging
 from module.evaluation import FocalLoss
 from module.preprocessing import get_pair_pad_idx, get_pad_idx
 from transformers import get_cosine_schedule_with_warmup
@@ -22,6 +23,7 @@ class LitPRGMoE(pl.LightningModule):
         self.dropout = kwargs['dropout']
         self.learning_rate = kwargs['learning_rate']
         self.training_iter = kwargs['training_iter']
+        self.encoder_separation = kwargs['encoder_separation']
         
         self.window_size = 3
         self.n_expert = 4
@@ -56,9 +58,10 @@ class LitPRGMoE(pl.LightningModule):
             self.loss_sum[i] = 0.0
             self.batch_count[i] = 0
         
-        self.best_performance = 0.0
+        self.best_performance = 0
         # Model
         self.encoder = AutoModel.from_pretrained(self.encoder_name)
+        self.encoder2 = AutoModel.from_pretrained(self.encoder_name)
         self.emotion_linear = nn.Linear(self.encoder.config.hidden_size, self.n_emotion)
         self.gating_network = nn.Linear(2 * (self.encoder.config.hidden_size + self.n_emotion + 1), self.n_expert)
         self.cause_linear = nn.ModuleList()
@@ -84,17 +87,24 @@ class LitPRGMoE(pl.LightningModule):
         token_type_ids = utterance_token_type_ids_batch
         speaker_ids = speaker_batch
         
-        _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
+        _, pooled_output_emotion = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
                                     attention_mask=attention_mask.view(-1, max_seq_len),
                                     return_dict=False)
         
-        utterance_representation = self.dropout(pooled_output)
+        utterance_representation = self.dropout(pooled_output_emotion)
         emotion_prediction = self.emotion_linear(utterance_representation)
         
+        if self.encoder_separation:
+            _, pooled_output_cause = self.encoder2(input_ids=input_ids.view(-1, max_seq_len),
+                                    attention_mask=attention_mask.view(-1, max_seq_len),
+                                    return_dict=False)
+        else:
+            pooled_output_cause = pooled_output_emotion
+            
         if self.only_emotion: # only_emotion인 경우는 가짜 아웃풋으로 때움 (cause 부분)
             cause_pred = torch.zeros(int((max_doc_len)*(max_doc_len+1)/2*batch_size)*2).view(-1,2).to(input_ids.device)
         else:  
-            pair_embedding = self.get_pair_embedding(pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
+            pair_embedding = self.get_pair_embedding(pooled_output_cause, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
             gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach())
 
             gating_prob = self.guiding_lambda * self.get_subtask_label(
@@ -240,6 +250,7 @@ class LitPRGMoE(pl.LightningModule):
     def on_test_epoch_end(self):
         self.log_test_result(types='test')
         
+        
     def make_test_setting(self, types='train'):
         self.emo_pred_y_list[types] = []
         self.emo_true_y_list[types] = []
@@ -251,6 +262,8 @@ class LitPRGMoE(pl.LightningModule):
         self.batch_count[types] = 0
         
     def log_test_result(self, types='train'):
+        logger = logging.getLogger(types)
+        
         loss_avg = self.loss_sum[types] / self.batch_count[types]
         emo_report, emo_metrics, acc_cau, p_cau, r_cau, f1_cau = log_metrics(self.train_type, self.emo_pred_y_list[types], self.emo_true_y_list[types], 
                                                 self.cau_pred_y_list[types], self.cau_true_y_list[types],
@@ -266,9 +279,21 @@ class LitPRGMoE(pl.LightningModule):
         self.log('emo 2.precision', emo_metrics[1], sync_dist=True)
         self.log('emo 3.recall', emo_metrics[2], sync_dist=True)
         self.log('emo 4.f1-score', emo_metrics[3], sync_dist=True)
-        print(f'\n<Emotion Prediction> of {types} / Epoch {self.current_epoch}')
-        print(emo_report)
-        print(f'<Cause Prediction>\n\taccuracy: \t{acc_cau}\n\tprecision: \t{p_cau}\n\trecall: \t{r_cau}\n\tf1-score: \t{f1_cau}\n')
+        
+        logging_texts = f'\n[Epoch {self.current_epoch}] / <Emotion Prediction> of {types}\n'+\
+                        emo_report+\
+                        f'\n<Cause Prediction>'+\
+                        f'\n\taccuracy: \t{acc_cau}'+\
+                        f'\n\tprecision:\t{p_cau}'+\
+                        f'\n\trecall:   \t{r_cau}'+\
+                        f'\n\tf1-score: \t{f1_cau}\n'
+        logger.info(logging_texts)
+        # print(f'\n<Emotion Prediction> of {types} / Epoch {self.current_epoch}')
+        # print(emo_report)
+        # print(f'<Cause Prediction>\n\taccuracy: \t{acc_cau}\n\tprecision: \t{p_cau}\n\trecall: \t{r_cau}\n\tf1-score: \t{f1_cau}\n')
+        # if (types=='valid'):
+        #     self.log("ptl/val_loss", self.loss_sum['valid'] / self.batch_count['valid'] )
+        #     self.log("ptl/val_accuracy", emo_metrics[0])
         
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)

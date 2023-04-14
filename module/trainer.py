@@ -35,9 +35,6 @@ class LearningEnv:
 
         self.max_seq_len = kwargs['max_seq_len']
         self.start_time = datetime.datetime.now()
-        
-        self.log_directory = kwargs['log_directory']
-
         self.training_iter = kwargs['training_iter']
         
         self.model_name = kwargs['model_name']
@@ -57,11 +54,17 @@ class LearningEnv:
         self.batch_size = kwargs['batch_size']
         self.guiding_lambda = kwargs['guiding_lambda']
         self.contain_context = kwargs['contain_context']
-        
+        self.encoder_separation = kwargs['encoder_separation']
         # learning variables
         self.best_performance = [0, 0, 0]  # p, r, f1
         self.num_epoch = 1
         
+        # set log directory
+        encodername_for_filename = self.encoder_name.replace('/', '_')
+        separated_encoder = 'separated' if self.encoder_separation else 'not_separated'
+        # directory for saving logs
+        self.log_directory = f"{kwargs['log_directory']}/{encodername_for_filename}-{separated_encoder}_lr{self.learning_rate}_{self.data_label}"
+
         self.model_args = {
             "dropout": self.dropout,
             "n_speaker": self.n_speaker,
@@ -74,6 +77,7 @@ class LearningEnv:
             "unfreeze": self.unfreeze,
             "only_emotion": self.only_emotion,
             "training_iter": self.training_iter,
+            "encoder_separation": self.encoder_separation,
         }
 
     def set_model(self):
@@ -95,12 +99,13 @@ class LearningEnv:
             self.train()
     
     def pre_setting(self):
-        # 로그 폴더 생성 및 로거 설정
-        logger_name_list = ['train', 'valid', 'test']
         encoder_name = self.encoder_name.replace('/', '_')
         
         EmotionText = 'OnlyEmotion' if self.only_emotion else ''
+        # 로거 설정
+        logger_name_list = ['train', 'valid', 'test']
         file_name_list = [f'{encoder_name}-{EmotionText}{self.data_label}-lr_{self.learning_rate}-Unfreeze{self.unfreeze}-{_}-{self.start_time}.log' for _ in logger_name_list]
+        
         self.set_logger_environment(file_name_list, logger_name_list)
         
         # 모델 저장할 폴더 생성
@@ -111,22 +116,22 @@ class LearningEnv:
         self.set_model()
     
         
-    def train(self, train_type='cause'):
-        logger = logging.getLogger('train')
-        
+    def train(self):
         train_dataloader = self.get_dataloader(self.train_dataset, self.batch_size, self.num_worker, shuffle=True, contain_context=self.contain_context)
         valid_dataloader = self.get_dataloader(self.valid_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
+        
+        # metrics = {"loss": "ptl/val_loss", "acc": "ptl/val_accuracy"}
         
         trainer_config = {
             "max_epochs": self.training_iter,
             "strategy": 'ddp_find_unused_parameters_true',
             "check_val_every_n_epoch": 1,
-            "accumulate_grad_batches": 2,
-            "default_root_dir": self.log_directory,
-            
+            "accumulate_grad_batches": 4,
+            "default_root_dir": '/hdd/hjl8708/',
         }
         trainer = L.Trainer(**trainer_config)
+        
         trainer.fit(self.model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
         trainer.validate(self.model, dataloaders=valid_dataloader)
         trainer.test(self.model, dataloaders=test_dataloader)
@@ -139,6 +144,8 @@ class LearningEnv:
     
     
     def set_logger_environment(self, file_name_list, logger_name_list):
+        # logger_name_list = ['train', 'valid', 'test']
+        # file_name_list = ['train_log.log', 'valid_log.log', 'test_log.log']
         for file_name, logger_name in zip(file_name_list, logger_name_list):
             for handler in logging.getLogger(logger_name).handlers[:]:
                 logging.getLogger(logger_name).removeHandler(handler)

@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--learning_rate', default=2e-5, type=float)
     parser.add_argument('--patience', help='patience for Early Stopping', default=None, type=int)
+    parser.add_argument('--encoder_separation', help='Use encoder separation or not', default=False, type=bool)
     
     parser.add_argument('--n_speaker', help='the number of speakers', default=2, type=int)
     parser.add_argument('--n_emotion', help='the number of emotions', default=7, type=int)
@@ -118,6 +119,9 @@ class Main:
     def set_hyperparameters(self, learning_rate, batch_size):
         self.args.learning_rate = learning_rate
         self.args.batch_size = batch_size
+    
+    def set_value(self, key, value):
+        setattr(self.args, key, value)
     
 if __name__ == "__main__":
     main = Main()

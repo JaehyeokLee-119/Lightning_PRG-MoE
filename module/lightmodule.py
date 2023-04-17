@@ -17,6 +17,7 @@ class LitPRGMoE(pl.LightningModule):
         
         # Model Setting and Parameters
         self.encoder_name = kwargs['encoder_name']
+        self.encoder2_name = 'roberta-base' # encoder 2는 'roberta-base'로 고정해보자
         self.num_unfreeze = kwargs['unfreeze']
         self.only_emotion = False
         self.n_cause = kwargs['n_cause']
@@ -29,6 +30,8 @@ class LitPRGMoE(pl.LightningModule):
         self.n_expert = 4
         self.n_emotion = 7
         self.guiding_lambda = kwargs['guiding_lambda']
+        
+        self.test = False # True when testing(on_test_epoch_start ~ on_test_epoch_end)
         
         if 'bert-base' in self.encoder_name:
             self.is_bert_like = True
@@ -61,7 +64,7 @@ class LitPRGMoE(pl.LightningModule):
         self.best_performance = 0
         # Model
         self.encoder = AutoModel.from_pretrained(self.encoder_name)
-        self.encoder2 = AutoModel.from_pretrained(self.encoder_name)
+        self.encoder2 = AutoModel.from_pretrained(self.encoder2_name)
         self.emotion_linear = nn.Linear(self.encoder.config.hidden_size, self.n_emotion)
         self.gating_network = nn.Linear(2 * (self.encoder.config.hidden_size + self.n_emotion + 1), self.n_expert)
         self.cause_linear = nn.ModuleList()
@@ -76,6 +79,14 @@ class LitPRGMoE(pl.LightningModule):
             for module in self.cause_linear:
                 for name, param in module.named_parameters():
                     param.requires_grad = False
+    
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
+        scheduler = get_cosine_schedule_with_warmup(optimizer=optimizer,
+                                                    num_warmup_steps=5,
+                                                    num_training_steps=self.training_iter,
+                                                    )
+        return [optimizer], [scheduler]
                     
     def forward(self, batch):
         utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
@@ -94,6 +105,7 @@ class LitPRGMoE(pl.LightningModule):
         utterance_representation = self.dropout(pooled_output_emotion)
         emotion_prediction = self.emotion_linear(utterance_representation)
         
+        # 인코더의 분리 여부에 따라 다른 풀링 방식을 사용 
         if self.encoder_separation:
             _, pooled_output_cause = self.encoder2(input_ids=input_ids.view(-1, max_seq_len),
                                     attention_mask=attention_mask.view(-1, max_seq_len),
@@ -119,6 +131,12 @@ class LitPRGMoE(pl.LightningModule):
             cause_pred = sum(pred)
         
         prediction = emotion_prediction, cause_pred
+        
+        if self.test:
+            check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction)
+            check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
+            self.joint_accuracy_step(emotion_prediction, emotion_label_batch, cause_pred, pair_binary_cause_label_batch, check_pair_pad_idx, check_pair_window_idx, batch_size, self.n_cause)
+        
         return prediction
     
     def output_processing(self, utterance_input_ids_batch, pair_binary_cause_label_batch, emotion_label_batch, emotion_prediction, binary_cause_prediction):
@@ -205,7 +223,7 @@ class LitPRGMoE(pl.LightningModule):
         
     def test_step(self, batch, batch_idx):
         types = 'test'
-        utterance_input_ids_batch, _, _, _, emotion_label_batch, _, pair_binary_cause_label_batch = batch
+        utterance_input_ids_batch, utterance_attention_mask_batch, utterance_token_type_ids_batch, speaker_batch, emotion_label_batch, pair_cause_label_batch, pair_binary_cause_label_batch = batch
         
         emotion_prediction, binary_cause_prediction = self.forward(batch)
         
@@ -229,13 +247,6 @@ class LitPRGMoE(pl.LightningModule):
         self.make_test_setting(types='train')
         
     def on_train_epoch_end(self):
-        # self.loss_avg = self.loss_sum / self.batch_count
-        # emo_report, emo_metrics, acc_cau, p_cau, r_cau, f1_cau = self.log_metrics(self.emo_pred_y_list, self.emo_true_y_list, 
-        #                                         self.cau_pred_y_list, self.cau_true_y_list,
-        #                                         self.cau_pred_y_list_all, self.cau_true_y_list_all, 
-        #                                         self.loss_avg)
-        # print(emo_report)
-        # print(f'cause metrics: acc: {acc_cau}, p: {p_cau}, r: {r_cau}, f1: {f1_cau}')
         self.log_test_result(types='train')
     
     def on_validation_epoch_start(self):
@@ -245,9 +256,11 @@ class LitPRGMoE(pl.LightningModule):
         self.log_test_result(types='valid')
     
     def on_test_epoch_start(self):
+        self.test = True
         self.make_test_setting(types='test')
         
     def on_test_epoch_end(self):
+        self.test = False
         self.log_test_result(types='test')
         
         
@@ -260,6 +273,10 @@ class LitPRGMoE(pl.LightningModule):
         self.cau_true_y_list_all[types] = []
         self.loss_sum[types] = 0.0
         self.batch_count[types] = 0
+        
+        if (types == 'test'):
+            self.cnt_entire_pair_candidate = 0
+            self.cnt_emo_o_pair_o = 0
         
     def log_test_result(self, types='train'):
         logger = logging.getLogger(types)
@@ -280,6 +297,10 @@ class LitPRGMoE(pl.LightningModule):
         self.log('emo 3.recall', emo_metrics[2], sync_dist=True)
         self.log('emo 4.f1-score', emo_metrics[3], sync_dist=True)
         
+        if (types == 'test'):
+            joint_acc = self.cnt_emo_o_pair_o / self.cnt_entire_pair_candidate
+            self.log('joint_acc', joint_acc, sync_dist=True)
+            
         logging_texts = f'\n[Epoch {self.current_epoch}] / <Emotion Prediction> of {types}\n'+\
                         emo_report+\
                         f'\n<Cause Prediction>'+\
@@ -287,6 +308,9 @@ class LitPRGMoE(pl.LightningModule):
                         f'\n\tprecision:\t{p_cau}'+\
                         f'\n\trecall:   \t{r_cau}'+\
                         f'\n\tf1-score: \t{f1_cau}\n'
+        if (types == 'test'):
+            logging_texts += f'\n\tjoint_acc: \t{joint_acc}\n'
+            
         logger.info(logging_texts)
         # print(f'\n<Emotion Prediction> of {types} / Epoch {self.current_epoch}')
         # print(emo_report)
@@ -294,15 +318,60 @@ class LitPRGMoE(pl.LightningModule):
         # if (types=='valid'):
         #     self.log("ptl/val_loss", self.loss_sum['valid'] / self.batch_count['valid'] )
         #     self.log("ptl/val_accuracy", emo_metrics[0])
+    
+    def joint_accuracy_step(self, emotion_prediction, emotion_label_batch, binary_cause_prediction, pair_binary_cause_label_batch, check_pair_pad_idx, check_pair_window_idx, batch_size, n_cause):
+        # 각 step마다 실행되며, 추론 결과를 바탕으로 
+        # self.cnt_entire_pair_candidate, self.cnt_emo_o_pair_o 값을 더해 업데이트한다
         
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
-        scheduler = get_cosine_schedule_with_warmup(optimizer=optimizer,
-                                                    num_warmup_steps=5,
-                                                    num_training_steps=self.training_iter,
-                                                    )
-        return [optimizer], [scheduler]
+        emotion_list = emotion_prediction.view(batch_size, -1, 7)
+        emotion_pair_list = []
+        emotion_pred_list = []
+        for doc_emotion in emotion_list: # 전체 batch에서 각 doc(대화)을 가져옴
+                end_t = 0
+                for utt_emotion in doc_emotion: # 각 대화마다 utterance 가져옴
+                    emotion_pred_list.append(torch.argmax(utt_emotion))
+                    for _ in range(end_t+1): # 
+                        emotion_pair_list.append(torch.argmax(utt_emotion)) # 모델의 감정 예측을 index[7->1]화
+                    end_t += 1
+        emotion_pair_pred_expanded = torch.stack(emotion_pair_list).view(batch_size, -1)
+        binary_cause_pred_window_full = torch.argmax(binary_cause_prediction.view(batch_size, -1, n_cause), dim=-1)
+        emotion_label_pair_list = [] 
+        for doc_emotion in emotion_label_batch:
+            end_t = 0
+            for emotion in doc_emotion:
+                for _ in range(end_t+1):
+                    emotion_label_pair_list.append(emotion)
+                end_t += 1
+        emotion_pair_true_expanded = torch.stack(emotion_label_pair_list).view(batch_size, -1)
+        pair_label_full = pair_binary_cause_label_batch
+
+        emotion_correct = emotion_pair_pred_expanded == emotion_pair_true_expanded
+        emotion_correct_windowed = emotion_correct[(check_pair_window_idx != False).nonzero(as_tuple=True)] # emotion이 정답인 pair들은 True, 아니면 False
+        # emotion_correct_all_pad = emotion_correct[(check_pair_pad_idx != False).nonzero(as_tuple=True)] # emotion이 정답인 pair들은 True, 아니면 False
         
+        pair_correct = binary_cause_pred_window_full == pair_label_full
+        # pair_correct_among_truepair = pair_correct[(pair_label_full == 1)]
+        # emotion_correct_among_truepair = emotion_correct[(pair_label_full == 1)]
+
+        pair_correct_windowed = pair_correct[(check_pair_window_idx != False).nonzero(as_tuple=True)] # pair가 정답인 pair들은 True, 아니면 False
+        # pair_correct_all_pad = pair_correct[(check_pair_pad_idx != False).nonzero(as_tuple=True)] # pair가 정답인 pair들은 True, 아니면 False
+        
+        # num_emo_x_pair_o = ((emotion_correct_windowed==False) & (pair_correct_windowed==True)).count_nonzero().item() # : 16
+        num_emo_o_pair_o = (emotion_correct_windowed & pair_correct_windowed).count_nonzero().item() # : 28
+        # num_emo_x_pair_x = ((emotion_correct_windowed==False) & (pair_correct_windowed==False)).count_nonzero().item()
+        # num_emo_o_pair_x = ((emotion_correct_windowed==True) & (pair_correct_windowed==False)).count_nonzero().item()
+                
+        # num_emo_x_pair_o_all = ((emotion_correct_all_pad==False) & (pair_correct_all_pad==True)).count_nonzero().item() # : 16
+        # num_emo_o_pair_o_all = (emotion_correct_all_pad & pair_correct_all_pad).count_nonzero().item() # : 28
+        # num_emo_x_pair_x_all = ((emotion_correct_all_pad==False) & (pair_correct_all_pad==False)).count_nonzero().item()
+        # num_emo_o_pair_x_all = ((emotion_correct_all_pad==True) & (pair_correct_all_pad==False)).count_nonzero().item()
+        
+        self.cnt_entire_pair_candidate += len(pair_correct_windowed)              # 5-0) 분류한 emotion에 근거해서, window에 속하므로 정답 pair의 후보가 될 수 있는 utterance pair 개수
+        # cnt_correct_pairs += pair_correct_windowed.count_nonzero().item()    # 5-0) 맞춘 pair의 개수 (T인지 F인지)
+        # cnt_emo_x_pair_o += num_emo_x_pair_o
+        self.cnt_emo_o_pair_o += num_emo_o_pair_o
+        # cnt_emo_x_pair_x += num_emo_x_pair_x
+        # cnt_emo_o_pair_x += num_emo_o_pair_x
         
     def get_pair_embedding(self, pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids):
         batch_size, max_doc_len, max_seq_len = input_ids.shape

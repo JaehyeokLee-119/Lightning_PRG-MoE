@@ -7,6 +7,7 @@ import torch
 import torch.optim as optim
 from tqdm import tqdm
 from torch.utils.data import TensorDataset, DataLoader
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from module.lightmodule import LitPRGMoE
 
@@ -34,14 +35,14 @@ class LearningEnv:
         self.data_label = kwargs['data_label']
 
         self.max_seq_len = kwargs['max_seq_len']
-        self.start_time = datetime.datetime.now()
+        self.start_time = datetime.datetime.now().date()
         self.training_iter = kwargs['training_iter']
         
         self.model_name = kwargs['model_name']
         self.port = kwargs['port']
         
         self.pretrained_model = kwargs['pretrained_model']
-        
+        self.encoder_separation = kwargs['encoder_separation']
         # Hyperparameters
         self.dropout = kwargs['dropout']
         self.n_cause = kwargs['n_cause']
@@ -54,7 +55,6 @@ class LearningEnv:
         self.batch_size = kwargs['batch_size']
         self.guiding_lambda = kwargs['guiding_lambda']
         self.contain_context = kwargs['contain_context']
-        self.encoder_separation = kwargs['encoder_separation']
         # learning variables
         self.best_performance = [0, 0, 0]  # p, r, f1
         self.num_epoch = 1
@@ -63,8 +63,11 @@ class LearningEnv:
         encodername_for_filename = self.encoder_name.replace('/', '_')
         separated_encoder = 'separated' if self.encoder_separation else 'not_separated'
         # directory for saving logs
-        self.log_directory = f"{kwargs['log_directory']}/{encodername_for_filename}-{separated_encoder}_lr{self.learning_rate}_{self.data_label}"
-
+        if kwargs.get('log_folder_name') is None:
+            self.log_directory = f"logs/{encodername_for_filename}-{separated_encoder}_lr{self.learning_rate}_{self.data_label}"
+        else:
+            self.log_directory = f"logs/{kwargs['log_folder_name']}"
+            
         self.model_args = {
             "dropout": self.dropout,
             "n_speaker": self.n_speaker,
@@ -83,8 +86,9 @@ class LearningEnv:
     def set_model(self):
         # self.model = LitPRGMoE
         if self.pretrained_model is not None:
-            model = LitPRGMoE(**self.model_args)
-            model = model.load_from_checkpoint(self.pretrained_model)
+            model = LitPRGMoE.load_from_checkpoint(checkpoint_path=self.pretrained_model, **self.model_args)
+            # model = model.(self.pretrained_model)
+            # model = torch.load(self.pretrained_model)
         else:
             model = LitPRGMoE(**self.model_args)
         self.model = model
@@ -121,24 +125,31 @@ class LearningEnv:
         valid_dataloader = self.get_dataloader(self.valid_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
         
-        # metrics = {"loss": "ptl/val_loss", "acc": "ptl/val_accuracy"}
+        separation_text = 'separated' if self.encoder_separation else 'not_separated'
+        model_file_name = f'{self.encoder_name}-{self.data_label}-{separation_text}_lr_{self.learning_rate}_{self.start_time}'
+        checkpoint_callback = ModelCheckpoint(
+            dirpath=f"model", 
+            save_top_k=1, 
+            monitor="binary_cause 5.f1-score",
+            mode="max",
+            filename=model_file_name)
         
         trainer_config = {
             "max_epochs": self.training_iter,
             "strategy": 'ddp_find_unused_parameters_true',
             "check_val_every_n_epoch": 1,
             "accumulate_grad_batches": 4,
-            "default_root_dir": '/hdd/hjl8708/',
+            "callbacks": [checkpoint_callback],
         }
         trainer = L.Trainer(**trainer_config)
-        
+            
         trainer.fit(self.model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
         trainer.validate(self.model, dataloaders=valid_dataloader)
         trainer.test(self.model, dataloaders=test_dataloader)
     
     def test(self):
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
-        trainer = L.Trainer(max_epochs=self.training_iter, strategy='ddp_find_unused_parameters_true')
+        trainer = L.Trainer()
         trainer.test(self.model, dataloaders=test_dataloader)
     
     

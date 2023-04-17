@@ -38,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--valid_data', default="data/data_fold/data_0/dailydialog_valid.json")
     parser.add_argument('--test_data', default="data/data_fold/data_0/dailydialog_test.json")
     parser.add_argument('--log_directory', default='logs', type=str)
+    parser.add_argument('--log_folder_name', default=None, type=str)
     parser.add_argument('--data_label', help='the label that attaches to saved model', default='dailydialog_fold_0')
 
     parser.add_argument('--only_emotion', help='only emotion classification', default=False, type=bool)
@@ -114,7 +115,7 @@ class Main:
         
     def set_test(self, ckpt_path):
         self.args.test = True
-        self.pretrained_model = ckpt_path
+        self.args.pretrained_model = ckpt_path
     
     def set_hyperparameters(self, learning_rate, batch_size):
         self.args.learning_rate = learning_rate
@@ -122,6 +123,9 @@ class Main:
     
     def set_value(self, key, value):
         setattr(self.args, key, value)
+    
+    def get_value(self, key):
+        return getattr(self.args, key)
     
 if __name__ == "__main__":
     main = Main()

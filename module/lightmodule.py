@@ -26,6 +26,12 @@ class LitPRGMoE(pl.LightningModule):
         self.training_iter = kwargs['training_iter']
         self.encoder_separation = kwargs['encoder_separation']
         
+        self.emotion_epoch_ratio = 0.5
+        # 학습은 전체 training_iter에서 emotion_epoch_ratio를 곱한 만큼 emotion만 학습,
+        # 그 이후 cause도/cause만 학습하는 식으로 이루어진다
+        self.emotion_epoch = int(self.training_iter * self.emotion_epoch_ratio)
+        self.training_iter = self.training_iter + self.emotion_epoch
+        
         self.window_size = 3
         self.n_expert = 4
         self.n_emotion = 7
@@ -63,22 +69,16 @@ class LitPRGMoE(pl.LightningModule):
         
         self.best_performance = 0
         # Model
-        self.encoder = AutoModel.from_pretrained(self.encoder_name)
-        self.encoder2 = AutoModel.from_pretrained(self.encoder2_name)
-        self.emotion_linear = nn.Linear(self.encoder.config.hidden_size, self.n_emotion)
-        self.gating_network = nn.Linear(2 * (self.encoder.config.hidden_size + self.n_emotion + 1), self.n_expert)
+        self.encoder_emotion = AutoModel.from_pretrained(self.encoder_name)
+        self.emotion_linear = nn.Linear(self.encoder_emotion.config.hidden_size, self.n_emotion)
+        
+        self.encoder_cause = AutoModel.from_pretrained(self.encoder2_name)
+        self.gating_network = nn.Linear(2 * (self.encoder_cause.config.hidden_size + self.n_emotion + 1), self.n_expert)
         self.cause_linear = nn.ModuleList()
         for _ in range(self.n_expert):
-            self.cause_linear.append(nn.Sequential(nn.Linear(2 * (self.encoder.config.hidden_size + self.n_emotion + 1), 256), nn.Linear(256, self.n_cause)))
+            self.cause_linear.append(nn.Sequential(nn.Linear(2 * (self.encoder_cause.config.hidden_size + self.n_emotion + 1), 256), nn.Linear(256, self.n_cause)))
         self.dropout = nn.Dropout(self.dropout)
         
-        # Model Freeze for only emotion
-        if self.only_emotion:
-            for name, param in self.gating_network.named_parameters():
-                param.requires_grad = False
-            for module in self.cause_linear:
-                for name, param in module.named_parameters():
-                    param.requires_grad = False
     
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
@@ -98,7 +98,7 @@ class LitPRGMoE(pl.LightningModule):
         token_type_ids = utterance_token_type_ids_batch
         speaker_ids = speaker_batch
         
-        _, pooled_output_emotion = self.encoder(input_ids=input_ids.view(-1, max_seq_len),
+        _, pooled_output_emotion = self.encoder_emotion(input_ids=input_ids.view(-1, max_seq_len),
                                     attention_mask=attention_mask.view(-1, max_seq_len),
                                     return_dict=False)
         
@@ -107,7 +107,7 @@ class LitPRGMoE(pl.LightningModule):
         
         # 인코더의 분리 여부에 따라 다른 풀링 방식을 사용 
         if self.encoder_separation:
-            _, pooled_output_cause = self.encoder2(input_ids=input_ids.view(-1, max_seq_len),
+            _, pooled_output_cause = self.encoder_cause(input_ids=input_ids.view(-1, max_seq_len),
                                     attention_mask=attention_mask.view(-1, max_seq_len),
                                     return_dict=False)
         else:
@@ -246,6 +246,47 @@ class LitPRGMoE(pl.LightningModule):
     def on_train_epoch_start(self):
         self.make_test_setting(types='train')
         
+        if (self.current_epoch < self.emotion_epoch):
+            self.train_type = 'emotion'
+            # 모델 뒤 얼리기, 앞 풀기
+            # Model Freeze for only emotion
+            
+            # Emotion encoder 전부 풀기
+            for name, param in self.encoder_emotion.named_parameters():
+                param.requires_grad = True
+                
+            num_hidden_layers = self.encoder_emotion.config.num_hidden_layers
+            num_unfreeze = 5
+            num_freeze = num_hidden_layers-num_unfreeze
+            # 0 ~ num_unfreeze를 False
+            for idx in range(0, min(num_hidden_layers-1,num_freeze)):
+                for param in self.encoder_emotion.encoder.layer[idx].parameters():
+                    param.requires_grad = False
+            for name, param in self.emotion_linear.named_parameters():
+                param.requires_grad = True
+            for name, param in self.encoder_cause.named_parameters():
+                param.requires_grad = False
+            for name, param in self.gating_network.named_parameters():
+                param.requires_grad = False
+            for module in self.cause_linear:
+                for name, param in module.named_parameters():
+                    param.requires_grad = False
+        else: 
+            self.train_type = 'cause'
+            # 모델 뒤 풀기, 앞 얼리기
+            # Model Freeze for only emotion
+            # for name, param in self.encoder_emotion.named_parameters():
+            #     param.requires_grad = False
+            # for name, param in self.emotion_linear.named_parameters():
+            #     param.requires_grad = False
+            for name, param in self.encoder_cause.named_parameters():
+                param.requires_grad = True
+            for name, param in self.gating_network.named_parameters():
+                param.requires_grad = True
+            for module in self.cause_linear:
+                for name, param in module.named_parameters():
+                    param.requires_grad = True
+        
     def on_train_epoch_end(self):
         self.log_test_result(types='train')
     
@@ -302,6 +343,7 @@ class LitPRGMoE(pl.LightningModule):
             self.log('joint_acc', joint_acc, sync_dist=True)
             
         logging_texts = f'\n[Epoch {self.current_epoch}] / <Emotion Prediction> of {types}\n'+\
+                        f'Train type: {self.train_type}\n'+\
                         emo_report+\
                         f'\n<Cause Prediction>'+\
                         f'\n\taccuracy: \t{acc_cau}'+\
@@ -461,10 +503,7 @@ def log_metrics(train_type, emo_pred_y_list, emo_true_y_list, cau_pred_y_list, c
     # logger.info(f'\nbinary_cause: {option} | loss {loss_avg}\n')
     # logger.info(f'\nbinary_cause: accuracy: {acc_cau} | precision: {p_cau} | recall: {r_cau} | f1-score: {f1_cau}\n')
         
-    if train_type == 'emotion':
-        return only_emo_acc, only_emo_macro, only_emo_weighted # For only emotion
-    elif train_type == 'cause':
-        return emo_report_str, emo_metrics, acc_cau, p_cau, r_cau, f1_cau # For Cause
+    return emo_report_str, emo_metrics, acc_cau, p_cau, r_cau, f1_cau # For Cause
 
 def argmax_prediction(pred_y, true_y):
     pred_argmax = torch.argmax(pred_y, dim=1).cpu()

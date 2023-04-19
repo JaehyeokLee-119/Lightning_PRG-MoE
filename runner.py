@@ -7,12 +7,20 @@ if __name__ == "__main__":
     os.environ['TOKENIZERS_PARALLELISM'] = 'false'
     torch.set_float32_matmul_precision('high')
 
-        # Mini Dataset (1 fold)
-    train_data_list = ['data/data_mini/dailydialog_train.json']
-    valid_data_list = ['data/data_mini/dailydialog_valid.json']
-    test_data_list = ['data/data_mini/dailydialog_test.json']
-    data_label = ['-original_mini']
-
+        # Entire data
+    train_data_list = [
+        'data/data_fold/data_0/dailydialog_train.json',
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_train.json' for fold_ in range(1, 5)]
+    ]
+    valid_data_list = [
+        'data/data_fold/data_0/dailydialog_valid.json',
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_valid.json' for fold_ in range(1, 5)]
+    ]
+    test_data_list = [
+        'data/data_fold/data_0/dailydialog_test.json',
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_test.json' for fold_ in range(1, 5)]
+    ]
+    data_label = ['-original_data_DailyDialog', *[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)]]
 
     lr = 5e-5
     batch_size = 2
@@ -35,7 +43,7 @@ if __name__ == "__main__":
                     runner.set_hyperparameters(learning_rate=lr, batch_size=batch_size)
                     runner.set_value('encoder_separation', sep_encoder)
                     runner.set_value('training_iter', 6)
-                    runner.set_value('log_folder_name', f'Train-separated-j-hartmann-large-unfreeze(10->3)_for_encoder1{dl}')
+                    runner.set_value('log_folder_name', f'Train-OnlyEmotion-lr{lr}-j-hartmann-large-unfreeze{dl}')
                     runner.run()
                     
                     del runner

@@ -9,7 +9,9 @@ from tqdm import tqdm
 from torch.utils.data import TensorDataset, DataLoader
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from module.lightmodule import LitPRGMoE
+from module.lighttrainer import LitPRGMoE
+from module.lighttrainer_emotion import LitEmotion
+from module.lighttrainer_cause import LitCause
 
 from module.preprocessing import get_data
 
@@ -37,6 +39,10 @@ class LearningEnv:
         self.max_seq_len = kwargs['max_seq_len']
         self.start_time = datetime.datetime.now().date()
         self.training_iter = kwargs['training_iter']
+        
+        self.emotion_epoch = 8
+        self.cause_epoch = 0
+        
         
         self.model_name = kwargs['model_name']
         self.port = kwargs['port']
@@ -88,14 +94,21 @@ class LearningEnv:
 
     def set_model(self):
         # self.model = LitPRGMoE
-        if self.pretrained_model is not None:
-            model = LitPRGMoE.load_from_checkpoint(checkpoint_path=self.pretrained_model, **self.model_args)
-            # model = model.(self.pretrained_model)
-            # model = torch.load(self.pretrained_model)
-        else:
-            model = LitPRGMoE(**self.model_args)
-        self.model = model
+        model_type = 'original_model'
+        model_type = 'separated_encoder'
+        model_type = 'separated_train'
         
+        if model_type == 'original_model':
+            if self.pretrained_model is not None:
+                model = LitPRGMoE.load_from_checkpoint(checkpoint_path=self.pretrained_model, **self.model_args)
+                # model = model.(self.pretrained_model)
+                # model = torch.load(self.pretrained_model)
+            else:
+                model = LitPRGMoE(**self.model_args)
+            self.model = model
+        elif model_type == 'separated_train':
+            self.emotion_model = LitEmotion(**self.model_args)
+            self.cause_model = None
     
     def run(self, **kwargs):
         self.pre_setting()
@@ -126,27 +139,64 @@ class LearningEnv:
         valid_dataloader = self.get_dataloader(self.valid_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
         
-        separation_text = 'separated' if self.encoder_separation else 'not_separated'
-        model_file_name = f'emo_{self.emotion_encodername_for_filename}_cau_{self.cause_encodername_for_filename}-{self.data_label}-{separation_text}_lr_{self.learning_rate}_{self.start_time}'
-        checkpoint_callback = ModelCheckpoint(
+              
+        # 두 개의 Trainer 사용 (감정, 원인)
+        # Emotion Epoch
+        emotion_epoch = self.emotion_epoch
+        cause_epoch = self.cause_epoch
+        emotion_model_name = f'emo_{self.emotion_encodername_for_filename}{self.data_label}-batch_{emotion_epoch}lr_{self.learning_rate}_{self.start_time}'
+        cause_model_path = f'cau_{self.cause_encodername_for_filename}{self.data_label}-batch_{cause_epoch}lr_{self.learning_rate}_{self.start_time}'
+        
+        emo_model = LitEmotion(**self.model_args)
+        
+        emotion_checkpoint_callback = ModelCheckpoint(
             dirpath=f"model", 
             save_top_k=1, 
-            monitor="binary_cause 5.f1-score",
+            monitor="emo 4.f1-score",
             mode="max",
-            filename=model_file_name)
+            filename=emotion_model_name)
         
-        trainer_config = {
-            "max_epochs": self.training_iter,
+        trainer_config_emo = {
+            "max_epochs": emotion_epoch,
             "strategy": 'ddp_find_unused_parameters_true',
             "check_val_every_n_epoch": 1,
             "accumulate_grad_batches": 4,
-            "callbacks": [checkpoint_callback],
+            "callbacks": [emotion_checkpoint_callback],
         }
-        trainer = L.Trainer(**trainer_config)
+        emo_trainer = L.Trainer(**trainer_config_emo)
+        emo_trainer.fit(emo_model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
+        emo_trainer.validate(emo_model, dataloaders=valid_dataloader)
+        emo_trainer.test(emo_model, dataloaders=test_dataloader)
+        # 
+        emotion_model_path = f'/model/{emotion_model_name}.ckpt'
+        
+        if (cause_epoch > 0):
+            # Cause Epoch
+            cause_model_name = f'emo_{self.cause_encodername_for_filename}{self.data_label}-batch_{cause_epoch}lr_{self.learning_rate}_{self.start_time}'
+            cause_checkpoint_callback = ModelCheckpoint(
+                dirpath=f"model", 
+                save_top_k=1, 
+                monitor="binary_cause 5.f1-score",
+                mode="max",
+                filename=cause_model_name)
+            trainer_config_cau = {
+                "max_epochs": cause_epoch,
+                "strategy": 'ddp_find_unused_parameters_true',
+                "check_val_every_n_epoch": 1,
+                "accumulate_grad_batches": 4,
+                "callbacks": [cause_checkpoint_callback],
+            }
             
-        trainer.fit(self.model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
-        trainer.validate(self.model, dataloaders=valid_dataloader)
-        trainer.test(self.model, dataloaders=test_dataloader)
+            cau_model = LitCause(**self.model_args)
+            
+            cau_trainer = L.Trainer(**trainer_config_cau)
+            cau_trainer.fit(cau_model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
+            cau_trainer.validate(cau_model, dataloaders=valid_dataloader)
+            cau_trainer.test(cau_model, dataloaders=test_dataloader)
+            # 감정 모델 체크포인트 경로를 넣어서 학습
+            # 넣어서 사용
+            
+        
     
     def test(self):
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)

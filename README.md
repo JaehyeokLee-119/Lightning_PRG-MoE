@@ -25,6 +25,11 @@ pytorch Lightning을 활용<br>
 The dataset used in this model is [RECCON dataset](https://github.com/declare-lab/RECCON)
 
 
+현재 모델 상황
+
+
+
+
 ### Commit Conventions (from https://treasurebear.tistory.com/70)
 🎉	`:tada:`	프로젝트 시작	Begin a project.<br>
 📝	`:memo:`	문서 추가/수정	Add or update documentation.<br>

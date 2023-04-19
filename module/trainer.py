@@ -49,22 +49,24 @@ class LearningEnv:
         self.n_speaker = kwargs['n_speaker']
         self.n_emotion = kwargs['n_emotion']
         self.n_expert = kwargs['n_expert']
-        self.encoder_name = kwargs['encoder_name']
         self.learning_rate = kwargs['learning_rate']
         self.unfreeze = kwargs['unfreeze']
         self.batch_size = kwargs['batch_size']
         self.guiding_lambda = kwargs['guiding_lambda']
         self.contain_context = kwargs['contain_context']
+        self.emotion_encoder_name = kwargs['emotion_encoder_name']
+        self.cause_encoder_name = kwargs['cause_encoder_name']
         # learning variables
         self.best_performance = [0, 0, 0]  # p, r, f1
         self.num_epoch = 1
         
         # set log directory
-        encodername_for_filename = self.encoder_name.replace('/', '_')
+        self.emotion_encodername_for_filename = self.emotion_encoder_name.replace('/', '_')
+        self.cause_encodername_for_filename = self.cause_encoder_name.replace('/', '_')
         separated_encoder = 'separated' if self.encoder_separation else 'not_separated'
         # directory for saving logs
         if kwargs.get('log_folder_name') is None:
-            self.log_directory = f"logs/{encodername_for_filename}-{separated_encoder}_lr{self.learning_rate}_{self.data_label}"
+            self.log_directory = f"logs/emo_{self.encodername_for_filename}_cau_{self.cause_encodername_for_filename}-{separated_encoder}_lr{self.learning_rate}_{self.data_label}"
         else:
             self.log_directory = f"logs/{kwargs['log_folder_name']}"
             
@@ -76,11 +78,12 @@ class LearningEnv:
             "n_expert": self.n_expert,
             "guiding_lambda": self.guiding_lambda,
             "learning_rate": self.learning_rate,
-            "encoder_name": self.encoder_name,
             "unfreeze": self.unfreeze,
             "only_emotion": self.only_emotion,
             "training_iter": self.training_iter,
             "encoder_separation": self.encoder_separation,
+            "emotion_encoder_name": self.emotion_encoder_name,
+            "cause_encoder_name": self.cause_encoder_name,
         }
 
     def set_model(self):
@@ -103,12 +106,10 @@ class LearningEnv:
             self.train()
     
     def pre_setting(self):
-        encoder_name = self.encoder_name.replace('/', '_')
-        
         EmotionText = 'OnlyEmotion' if self.only_emotion else ''
         # 로거 설정
         logger_name_list = ['train', 'valid', 'test']
-        file_name_list = [f'{encoder_name}-{EmotionText}{self.data_label}-lr_{self.learning_rate}-Unfreeze{self.unfreeze}-{_}-{self.start_time}.log' for _ in logger_name_list]
+        file_name_list = [f'{self.emotion_encodername_for_filename}-{EmotionText}{self.data_label}-lr_{self.learning_rate}-Unfreeze{self.unfreeze}-{_}-{self.start_time}.log' for _ in logger_name_list]
         
         self.set_logger_environment(file_name_list, logger_name_list)
         
@@ -126,7 +127,7 @@ class LearningEnv:
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
         
         separation_text = 'separated' if self.encoder_separation else 'not_separated'
-        model_file_name = f'{self.encoder_name}-{self.data_label}-{separation_text}_lr_{self.learning_rate}_{self.start_time}'
+        model_file_name = f'emo_{self.emotion_encodername_for_filename}_cau_{self.cause_encodername_for_filename}-{self.data_label}-{separation_text}_lr_{self.learning_rate}_{self.start_time}'
         checkpoint_callback = ModelCheckpoint(
             dirpath=f"model", 
             save_top_k=1, 
@@ -180,7 +181,7 @@ class LearningEnv:
 
     def get_dataloader(self, dataset_file, batch_size, num_worker, shuffle=True, contain_context=False):
         device = "cuda:0"
-        data = get_data(dataset_file, device, self.max_seq_len, self.encoder_name, contain_context)
+        data = get_data(dataset_file, device, self.max_seq_len, self.emotion_encoder_name, contain_context)
         utterance_input_ids_t, utterance_attention_mask_t, utterance_token_type_ids_t = data[0]
         speaker_t, emotion_label_t, pair_cause_label_t, pair_binary_cause_label_t = data[1:]
 

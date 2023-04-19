@@ -44,7 +44,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--only_emotion', help='only emotion classification', default=False, type=bool)
     
     # Encoder Model Setting
-    parser.add_argument('--encoder_name', help='the name of encoder', default='roberta-base')
+    parser.add_argument('--emotion_encoder_name', help='the name of encoder', default='roberta-base')
+    parser.add_argument('--cause_encoder_name', help='the name of encoder', default='roberta-base')
     parser.add_argument('--unfreeze', help='the number of layers to be unfrozen', default=0, type=int) # 0 == unfreeze all layers
     parser.add_argument('--max_seq_len', help='the max length of each tokenized utterance', default=75, type=int)
     parser.add_argument('--contain_context', help='While tokenizing, previous utterances are contained or not', default=False)
@@ -91,7 +92,7 @@ class Main:
             self.args.gpus = self.args.gpus.split(',')
             self.args.gpus = [int(_) for _ in self.args.gpus]
             
-        encoder_name = self.args.encoder_name.replace('/', '_')  
+        encoder_name = self.args.emotion_encoder_name.replace('/', '_')  
         self.args.wandb_pjname = f'ECPE_{encoder_name}_lr{self.args.learning_rate}_Unfreze{self.args.unfreeze}_{self.args.data_label}'
         
         # 실행
@@ -109,9 +110,6 @@ class Main:
         
     def set_gpus(self, gpus):
         self.args.gpus = gpus
-    
-    def set_encoder_name(self, encoder_name):
-        self.args.encoder_name = encoder_name
         
     def set_test(self, ckpt_path):
         self.args.test = True

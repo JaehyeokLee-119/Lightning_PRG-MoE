@@ -16,8 +16,8 @@ class LitPRGMoE(pl.LightningModule):
         super().__init__()
         
         # Model Setting and Parameters
-        self.encoder_name = kwargs['encoder_name']
-        self.encoder2_name = 'roberta-base' # encoder 2는 'roberta-base'로 고정해보자
+        self.encoder_name = kwargs['emotion_encoder_name']
+        self.encoder2_name = kwargs['cause_encoder_name']
         self.num_unfreeze = kwargs['unfreeze']
         self.only_emotion = False
         self.n_cause = kwargs['n_cause']
@@ -44,7 +44,7 @@ class LitPRGMoE(pl.LightningModule):
         else:
             self.is_bert_like = False
         
-        self.train_type = 'cause'
+        self.train_type = 'emotion'
         
         # Dictionaries for logging
         types = ['train', 'valid', 'test']
@@ -163,12 +163,13 @@ class LitPRGMoE(pl.LightningModule):
     
     def loss_calculation(self, emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window):
         if self.train_type == 'cause':
-            criterion_emo = FocalLoss(gamma=2)
+            # criterion_emo = FocalLoss(gamma=2)
             criterion_cau = FocalLoss(gamma=2)
             
-            loss_emo = criterion_emo(emotion_prediction_filtered, emotion_label_batch_filtered)
+            # loss_emo = criterion_emo(emotion_prediction_filtered, emotion_label_batch_filtered)
             loss_cau = criterion_cau(pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
-            loss = 0.2 * loss_emo + 0.8 * loss_cau
+            # loss = 0.2 * loss_emo + 0.8 * loss_cau
+            loss = loss_cau
         elif self.train_type == 'emotion':
             criterion_emo = FocalLoss(gamma=2)
             loss_emo = criterion_emo(emotion_prediction_filtered, emotion_label_batch_filtered)
@@ -251,17 +252,16 @@ class LitPRGMoE(pl.LightningModule):
             # 모델 뒤 얼리기, 앞 풀기
             # Model Freeze for only emotion
             
-            # Emotion encoder 전부 풀기
-            for name, param in self.encoder_emotion.named_parameters():
-                param.requires_grad = True
+            # # Emotion encoder 전부 풀기
+            # for name, param in self.encoder_emotion.named_parameters():
+            #     param.requires_grad = True
                 
-            num_hidden_layers = self.encoder_emotion.config.num_hidden_layers
-            num_unfreeze = 5
-            num_freeze = num_hidden_layers-num_unfreeze
+            # num_hidden_layers = self.encoder_emotion.config.num_hidden_layers
+            # num_unfreeze = 10
+            # num_freeze = num_hidden_layers-num_unfreeze
             # 0 ~ num_unfreeze를 False
-            for idx in range(0, min(num_hidden_layers-1,num_freeze)):
-                for param in self.encoder_emotion.encoder.layer[idx].parameters():
-                    param.requires_grad = False
+            for param in self.encoder_emotion.parameters():
+                param.requires_grad = True
             for name, param in self.emotion_linear.named_parameters():
                 param.requires_grad = True
             for name, param in self.encoder_cause.named_parameters():
@@ -279,6 +279,18 @@ class LitPRGMoE(pl.LightningModule):
             #     param.requires_grad = False
             # for name, param in self.emotion_linear.named_parameters():
             #     param.requires_grad = False
+            
+            # num_hidden_layers = self.encoder_emotion.config.num_hidden_layers
+            # num_unfreeze = 3
+            # num_freeze = num_hidden_layers-num_unfreeze
+            # 0 ~ num_unfreeze를 False
+            # for idx in range(0, min(num_hidden_layers-1,num_freeze)):
+            #     for param in self.encoder_emotion.encoder.layer[idx].parameters():
+            #         param.requires_grad = False
+            for param in self.encoder_emotion.parameters():
+                param.requires_grad = False
+            for name, param in self.emotion_linear.named_parameters():
+                param.requires_grad = False
             for name, param in self.encoder_cause.named_parameters():
                 param.requires_grad = True
             for name, param in self.gating_network.named_parameters():
@@ -417,12 +429,6 @@ class LitPRGMoE(pl.LightningModule):
         
     def get_pair_embedding(self, pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids):
         batch_size, max_doc_len, max_seq_len = input_ids.shape
-
-        # # 이 부분 encoder 안 돌리게 최적화 가능한가?
-        # _, pooled_output = self.encoder(input_ids=input_ids.view(-1, max_seq_len), 
-        #                                 attention_mask=attention_mask.view(-1, max_seq_len), 
-        #                                 token_type_ids=token_type_ids.view(-1, max_seq_len), 
-        #                                 return_dict=False)
         
         utterance_representation = self.dropout(pooled_output)
 

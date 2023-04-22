@@ -6,6 +6,8 @@ logs
 _*
 *.pyc
 **/__pycache__/
+backups
+
 
 # model checkpoints
 model/*.ckpt

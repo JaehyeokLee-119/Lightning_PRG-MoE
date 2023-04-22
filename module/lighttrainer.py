@@ -10,42 +10,44 @@ from module.evaluation import log_metrics, FocalLoss
 from sklearn.metrics import classification_report
 from transformers import AutoModel
 import numpy as np
-from module.lightmodels import EmotionModel, CauseModel
+from module.lightmodels import EmotionModel, CauseModel, TotalModel
 
 class LitPRGMoE(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
         
-        # Model Setting and Parameters
-        self.emotion_encoder_name = kwargs['emotion_encoder_name']
-        self.cause_encoder_name = kwargs['cause_encoder_name']
-        self.num_unfreeze = kwargs['unfreeze']
-        self.only_emotion = False
-        self.n_cause = kwargs['n_cause']
+        # 모델 셋팅 파라미터
+        self.encoder_name = kwargs['encoder_name']
+        # Model
+        self.model = TotalModel(self.encoder_name) # output: (emotion prediction, cause prediction)
+        
+        # 하이퍼파라미터 설정
+        self.training_iter = kwargs['training_iter']
         self.dropout = kwargs['dropout']
         self.learning_rate = kwargs['learning_rate']
-        self.training_iter = kwargs['training_iter']
-        self.encoder_separation = kwargs['encoder_separation']
-        
-        self.emotion_epoch_ratio = kwargs['emotion_epoch_ratio']
-        # 학습은 전체 training_iter에서 emotion_epoch_ratio를 곱한 만큼 emotion만 학습,
-        # 그 이후 cause도/cause만 학습하는 식으로 이루어진다
-        self.emotion_epoch = int(self.training_iter * self.emotion_epoch_ratio)
-        self.training_iter = self.training_iter + self.emotion_epoch
-        
         self.window_size = 3
         self.n_expert = 4
         self.n_emotion = 7
         self.guiding_lambda = kwargs['guiding_lambda']
+        self.loss_lambda = kwargs['loss_lambda'] # loss 중 Emotion loss의 비율
         
+        # 학습 방법 설정
+        self.num_unfreeze = kwargs['unfreeze']
+        self.only_emotion = False
+        self.n_cause = kwargs['n_cause']
+        self.emotion_epoch_ratio = kwargs['emotion_epoch_ratio'] # 이 비율만큼 추가적으로 먼저 감정만 학습
+        
+        # 모델 내 학습 중 변수 설정
         self.test = False # True when testing(on_test_epoch_start ~ on_test_epoch_end)
-        
-        if 'bert-base' in self.emotion_encoder_name:
+            # test에서 joint_accuracy를 계산
+        self.train_type = 'total'
+        if 'bert-base' in self.encoder_name:
             self.is_bert_like = True
         else:
             self.is_bert_like = False
         
-        self.train_type = 'emotion'
+        self.emotion_epoch = int(self.training_iter * self.emotion_epoch_ratio)
+        self.training_iter = self.training_iter + self.emotion_epoch
         
         # Dictionaries for logging
         types = ['train', 'valid', 'test']
@@ -68,11 +70,23 @@ class LitPRGMoE(pl.LightningModule):
             self.loss_sum[i] = 0.0
             self.batch_count[i] = 0
         
-        self.best_performance = 0
+        self.best_performance_emo = {
+            'accuracy': 0.0,
+            'macro_f1': 0.0,
+            'weighted_f1': 0.0,
+            'epoch': 0,
+            'loss': 0.0,
+        }
+        self.best_performance_cau = {
+            'accuracy': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1': 0.0,
+            'epoch': 0,
+            'loss': 0.0,
+        }
         
-        # Model
-        self.emotion_model = EmotionModel(self.emotion_encoder_name, self.n_emotion, self.dropout)
-        self.cause_model = CauseModel(self.cause_encoder_name, self.guiding_lambda, self.n_emotion, self.n_expert, self.n_cause, self.dropout)
+        
         
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
@@ -92,27 +106,23 @@ class LitPRGMoE(pl.LightningModule):
         token_type_ids = utterance_token_type_ids_batch
         speaker_ids = speaker_batch
         
-        # emotion forward
-        emotion_prediction, pooled_output_emotion = self.emotion_model(input_ids, attention_mask, max_seq_len)
-        # cause forward
-        cause_pred = self.cause_model(emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids, max_seq_len)
-        
-        prediction = emotion_prediction, cause_pred
+        # Forward
+        emotion_prediction, cause_prediction = self.model(input_ids, attention_mask, token_type_ids, speaker_ids, max_seq_len)
         
         if self.test:
-            check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.emotion_encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction)
-            check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.emotion_encoder_name, window_constraint=1000, )
-            self.joint_accuracy_step(emotion_prediction, emotion_label_batch, cause_pred, pair_binary_cause_label_batch, check_pair_pad_idx, check_pair_window_idx, batch_size, self.n_cause)
+            check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction)
+            check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
+            self.joint_accuracy_step(emotion_prediction, emotion_label_batch, cause_prediction, pair_binary_cause_label_batch, check_pair_pad_idx, check_pair_window_idx, batch_size, self.n_cause)
         
-        return prediction, pooled_output_emotion
+        return (emotion_prediction, cause_prediction)
     
     def output_processing(self, utterance_input_ids_batch, pair_binary_cause_label_batch, emotion_label_batch, emotion_prediction, binary_cause_prediction):
         # 모델의 forward 결과로부터 loss 계산과 로깅을 위한 input 6개를 구해 리턴
         batch_size, _, _ = utterance_input_ids_batch.shape
         # Output processing
-        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.emotion_encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction)
-        check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.emotion_encoder_name, window_constraint=1000, )
-        check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.emotion_encoder_name)
+        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction)
+        check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
+        check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.encoder_name)
 
         # Emotion prediction, label
         emotion_prediction_filtered = emotion_prediction[(check_pad_idx != False).nonzero(as_tuple=True)]
@@ -141,6 +151,13 @@ class LitPRGMoE(pl.LightningModule):
             criterion_emo = FocalLoss(gamma=2)
             loss_emo = criterion_emo(emotion_prediction_filtered, emotion_label_batch_filtered)
             loss = loss_emo
+        elif self.train_type == 'total':
+            criterion_emo = FocalLoss(gamma=2)
+            criterion_cau = FocalLoss(gamma=2)
+            
+            loss_emo = criterion_emo(emotion_prediction_filtered, emotion_label_batch_filtered)
+            loss_cau = criterion_cau(pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
+            loss = self.loss_lambda * loss_emo + (1-self.loss_lambda) * loss_cau
         return loss
     
     
@@ -213,19 +230,19 @@ class LitPRGMoE(pl.LightningModule):
 
     def on_train_epoch_start(self):
         self.make_test_setting(types='train')
-        
-        if (self.current_epoch < self.emotion_epoch):
-            self.train_type = 'emotion'
-            for param in self.emotion_model.parameters():
-                param.requires_grad = True
-            for param in self.cause_model.parameters():
-                param.requires_grad = False
-        else: 
-            self.train_type = 'cause'
-            for param in self.emotion_model.parameters():
-                param.requires_grad = False
-            for param in self.cause_model.parameters():
-                param.requires_grad = True
+        self.train_type = 'total'
+        # if (self.current_epoch < self.emotion_epoch):
+        #     self.train_type = 'emotion'
+        #     for param in self.emotion_model.parameters():
+        #         param.requires_grad = True
+        #     for param in self.cause_model.parameters():
+        #         param.requires_grad = False
+        # else: 
+        #     self.train_type = 'cause'
+        #     for param in self.emotion_model.parameters():
+        #         param.requires_grad = False
+        #     for param in self.cause_model.parameters():
+        #         param.requires_grad = True
         
     def on_train_epoch_end(self):
         self.log_test_result(types='train')
@@ -274,13 +291,36 @@ class LitPRGMoE(pl.LightningModule):
         self.log('binary_cause 5.f1-score', f1_cau, sync_dist=True)
         
         self.log('emo 1.accuracy', emo_metrics[0], sync_dist=True)
-        self.log('emo 2.precision', emo_metrics[1], sync_dist=True)
-        self.log('emo 3.recall', emo_metrics[2], sync_dist=True)
-        self.log('emo 4.f1-score', emo_metrics[3], sync_dist=True)
+        self.log('emo 2.macro-f1', emo_metrics[1], sync_dist=True)
+        self.log('emo 3.weighted-f1', emo_metrics[2], sync_dist=True)
         
-        if (types == 'test'):
-            joint_acc = self.cnt_emo_o_pair_o / self.cnt_entire_pair_candidate
-            self.log('joint_acc', joint_acc, sync_dist=True)
+        if (types == 'valid'):
+            if (self.best_performance_emo['weighted_f1'] < emo_metrics[2]):
+                self.best_performance_emo['weighted_f1'] = emo_metrics[2]
+                self.best_performance_emo['accuracy'] = emo_metrics[0]
+                self.best_performance_emo['macro_f1'] = emo_metrics[1]
+                self.best_performance_emo['epoch'] = self.current_epoch
+                self.best_performance_emo['loss'] = loss_avg
+            if (self.best_performance_cau['f1'] < f1_cau):
+                self.best_performance_cau['f1'] = f1_cau
+                self.best_performance_cau['accuracy'] = acc_cau
+                self.best_performance_cau['precision'] = p_cau
+                self.best_performance_cau['recall'] = r_cau
+                self.best_performance_cau['epoch'] = self.current_epoch
+                self.best_performance_cau['loss'] = loss_avg
+            
+            appended_log = f'\nCurrent Best Performance: loss: {self.best_performance_cau["loss"]}\n'+\
+                            f'\t<Emotion Prediction>\n'+\
+                            f'\t\taccuracy: \t{self.best_performance_emo["accuracy"]}\n'+\
+                            f'\t\tmacro_f1: \t{self.best_performance_emo["macro_f1"]}\n'+\
+                            f'\t\tweighted_f1: \t{self.best_performance_emo["weighted_f1"]}\n'+\
+                            f'\t\tepoch: \t{self.best_performance_emo["epoch"]}\n'+\
+                            f'\t<Cause Prediction>\n'+\
+                            f'\t\taccuracy: \t{self.best_performance_cau["accuracy"]}\n'+\
+                            f'\t\tprecision: \t{self.best_performance_cau["precision"]}\n'+\
+                            f'\t\trecall: \t{self.best_performance_cau["recall"]}\n'+\
+                            f'\t\tf1:\t\t{self.best_performance_cau["f1"]}\n'+\
+                            f'\t\tepoch: \t{self.best_performance_cau["epoch"]}\n'
             
         logging_texts = f'\n[Epoch {self.current_epoch}] / <Emotion Prediction> of {types}\n'+\
                         f'Train type: {self.train_type}\n'+\
@@ -290,9 +330,14 @@ class LitPRGMoE(pl.LightningModule):
                         f'\n\tprecision:\t{p_cau}'+\
                         f'\n\trecall:   \t{r_cau}'+\
                         f'\n\tf1-score: \t{f1_cau}\n'
+                        
         if (types == 'test'):
+            joint_acc = self.cnt_emo_o_pair_o / self.cnt_entire_pair_candidate
+            self.log('joint_acc', joint_acc, sync_dist=True)
             logging_texts += f'\n\tjoint_acc: \t{joint_acc}\n'
             
+        if (types == 'valid'):
+            logging_texts += appended_log
         logger.info(logging_texts)
         # print(f'\n<Emotion Prediction> of {types} / Epoch {self.current_epoch}')
         # print(emo_report)
@@ -302,8 +347,7 @@ class LitPRGMoE(pl.LightningModule):
         #     self.log("ptl/val_accuracy", emo_metrics[0])
     
     def joint_accuracy_step(self, emotion_prediction, emotion_label_batch, binary_cause_prediction, pair_binary_cause_label_batch, check_pair_pad_idx, check_pair_window_idx, batch_size, n_cause):
-        # 각 step마다 실행되며, 추론 결과를 바탕으로 
-        # self.cnt_entire_pair_candidate, self.cnt_emo_o_pair_o 값을 더해 업데이트한다
+        # 각 step마다 실행되며, 추론 결과를 바탕으로 self.cnt_entire_pair_candidate, self.cnt_emo_o_pair_o 값을 더해 업데이트한다
         
         emotion_list = emotion_prediction.view(batch_size, -1, 7)
         emotion_pair_list = []
@@ -368,7 +412,6 @@ class LitPRGMoE(pl.LightningModule):
             pair_per_batch = list()
             for end_t in range(max_doc_len):
                 for t in range(end_t + 1):
-                    # backward 시, cycle이 생겨 문제가 생길 경우, batch[end_t].detach() 시도.
                     pair_per_batch.append(torch.cat((batch[t], batch[end_t])))
             pair_embedding.append(torch.stack(pair_per_batch))
 
@@ -413,10 +456,9 @@ def log_metrics(train_type, emo_pred_y_list, emo_true_y_list, cau_pred_y_list, c
     # logger.info('\n' + metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_))
     emo_report_dict = metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_, get_dict=True)
     emo_report_str = metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_, get_dict=False)
-    acc_emo, p_emo, r_emo, f1_emo = emo_report_dict['accuracy'], emo_report_dict['weighted avg']['precision'], emo_report_dict['weighted avg']['recall'], emo_report_dict['weighted avg']['f1-score']
-    emo_metrics = (acc_emo, p_emo, r_emo, f1_emo)
+    acc_emo, macro_f1, weighted_f1 = emo_report_dict['accuracy'], emo_report_dict['macro avg']['f1-score'], emo_report_dict['weighted avg']['f1-score']
+    emo_metrics = (acc_emo, macro_f1, weighted_f1)
     
-    only_emo_acc, only_emo_macro, only_emo_weighted = acc_emo, emo_report_dict['macro avg']['f1-score'], f1_emo
     # CAUSE 부분
     label_ = np.array(['No Cause', 'Cause'])
 

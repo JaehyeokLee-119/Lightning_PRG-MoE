@@ -26,7 +26,7 @@ test_data_list = [
     * [f'data/data_fold/data_{fold_}/data_{fold_}_test.json' for fold_ in range(1, 5)],
     'data/data_fold/data_0/dailydialog_test.json',
 ]
-data_label = [*[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)], '-data_0_DailyDialog']
+data_label = [*[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)], '-original_data_DailyDialog']
 
     
 # Original Dataset (1 fold)

@@ -24,31 +24,43 @@ if __name__ == "__main__":
 
 
     lr = [5e-5]
-    batch_sizes = [5]
-    gpus = [1]
+    batch_sizes = [2]
+    gpus = [2,3]
+    loss_lambda_list = [1]
+    accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
     # cause_encoder_name_list = ['roberta-base']
     
-    encoder_name = 'j-hartmann/emotion-english-distilroberta-base'
+        # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
+        # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
+    encoder_name_list = ['j-hartmann/emotion-english-roberta-large']
+    use_original_list = [False]
     mode = 'train'
     
     if mode == 'train':
-        for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, data_label):
-            for lr_ in lr:
-                for batch_size in batch_sizes:
-                    runner = main.Main()
-                    runner.set_dataset(tr, va, te, dl)
-                    runner.set_gpus(gpus)
-                    runner.set_hyperparameters(learning_rate=lr_, batch_size=batch_size)
-                    runner.set_value('training_iter', 15)
-                    runner.set_value('encoder_name', encoder_name)
-                    runner.set_value('accumulate_grad_batches', 1)
-                    
-                    encoder_filename = encoder_name.split('/')[-1]
-                    runner.set_value('log_folder_name', f'Encoder-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')
-                    runner.run()
-                    
-                    del runner
+        for encoder_name, use_original in zip(encoder_name_list, use_original_list):
+            for loss_lambda in loss_lambda_list:
+                for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, data_label):
+                    for lr_ in lr:
+                        for batch_size in batch_sizes:
+                            runner = main.Main()
+                            runner.set_dataset(tr, va, te, dl)
+                            runner.set_gpus(gpus)
+                            runner.set_hyperparameters(learning_rate=lr_, batch_size=batch_size)
+                            runner.set_value('training_iter', 20)
+                            runner.set_value('encoder_name', encoder_name)
+                            runner.set_value('accumulate_grad_batches', accumulate_grad_batches)
+                            runner.set_value('loss_lambda', loss_lambda)
+                            runner.set_value('use_original', use_original)
+                            encoder_name_for_filename = encoder_name.replace('/', '-')
+                            # runner.set_value('log_folder_name', f'Encoder_loss_lambda{loss_lambda}-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')
+                            if use_original:
+                                runner.set_value('log_folder_name', f'(고정, 감정만)Original_PRG-MoE(batch5, losslambda{loss_lambda})BertModel{dl}')
+                            else:
+                                runner.set_value('log_folder_name', f'(분류레이어까지, losslambda{loss_lambda}){encoder_name_for_filename}(batch{batch_size}, accumulate_grad_batches{accumulate_grad_batches})_{dl}')
+                            runner.run()
+                            
+                            del runner
     else: # test
         test_model_list = [
             # separated 0,1,2,3,4 / unseparated 5,6,7,8,9
@@ -68,12 +80,9 @@ if __name__ == "__main__":
         for tr, va, te, dl, tm, tfn in zip(train_data_list, valid_data_list, test_data_list, 
                                       data_label, test_model_list, test_log_folder_list):
             runner = main.Main()
-            emotion_encoder_name = emotion_encoder_name_list[0]
-            cause_encoder_name = cause_encoder_name_list[0]
             runner.set_dataset(tr, va, te, dl)
             runner.set_gpus(gpus)
-            runner.set_value('emotion_encoder_name', emotion_encoder_name)
-            runner.set_value('cause_encoder_name', cause_encoder_name)
+            runner.set_value('encoder_name', encoder_name)
             runner.set_test(ckpt_path=tm)
             runner.set_value('encoder_separation', False)
             runner.set_value('log_folder_name', tfn)

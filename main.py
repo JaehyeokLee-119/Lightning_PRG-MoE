@@ -44,12 +44,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--only_emotion', help='only emotion classification', default=False, type=bool)
     parser.add_argument('--only_cause', help='only cause classification', default=False, type=bool)
     parser.add_argument('--emo_model_path', help='the path of emotion model', default=None)
+    
     # Encoder Model Setting
     parser.add_argument('--encoder_name', help='the name of encoder', default='roberta-base')
     parser.add_argument('--unfreeze', help='the number of layers to be unfrozen', default=0, type=int) # 0 == unfreeze all layers
     parser.add_argument('--max_seq_len', help='the max length of each tokenized utterance', default=75, type=int)
     parser.add_argument('--contain_context', help='While tokenizing, previous utterances are contained or not', default=False)
-    parser.add_argument('--loss_lambda', default=0.2)
+    parser.add_argument('--loss_lambda', help='Ratio of emotion loss in the total loss', default=0.2)
+    
+    # 원래의 PRG-MoE 모델을 사용한다 (데이터 비교를 위해)
+    parser.add_argument('--use_original', default=False)
 
     # Training Hyperparameters
     parser.add_argument('--dropout', default=0.5, type=float)

@@ -34,7 +34,7 @@ class LearningEnv:
         self.test_dataset = kwargs['test_data']
         self.data_label = kwargs['data_label']
         
-        self.loss_lambda = kwargs['loss_lambda']
+        self.loss_lambda = kwargs['loss_lambda'] # loss 중 Emotion loss의 비율
 
         self.max_seq_len = kwargs['max_seq_len']
         self.start_time = datetime.datetime.now().date()
@@ -43,6 +43,7 @@ class LearningEnv:
         self.emotion_epoch = 20
         self.cause_epoch = 6
         
+        self.use_original = kwargs['use_original']
         
         self.model_name = kwargs['model_name']
         self.port = kwargs['port']
@@ -61,10 +62,11 @@ class LearningEnv:
         self.contain_context = kwargs['contain_context']
         self.encoder_name = kwargs['encoder_name']
         self.emotion_epoch_ratio = kwargs['emotion_epoch_ratio']
+        
         # learning variables
         self.best_performance = [0, 0, 0]  # p, r, f1
         self.num_epoch = 1
-        self.accumulate_grad_batches = 8
+        self.accumulate_grad_batches = kwargs['accumulate_grad_batches']
         # set log directory
         self.encoder_name_for_filename = self.encoder_name.replace('/', '_')
         
@@ -72,7 +74,7 @@ class LearningEnv:
         if kwargs.get('log_folder_name') is None:
             self.log_directory = f"logs/{self.encoder_name_for_filename}_lr{self.learning_rate}_{self.data_label}"
         else:
-            self.log_directory = f"logs/{kwargs['log_folder_name']}{self.data_label}_accum_grad_batches({self.accumulate_grad_batches})"
+            self.log_directory = f"logs/{kwargs['log_folder_name']}_accum_grad_batches({self.accumulate_grad_batches})"
             
         self.model_args = {
             "dropout": self.dropout,
@@ -88,6 +90,7 @@ class LearningEnv:
             "training_iter": self.training_iter,
             "encoder_name": self.encoder_name,
             "emotion_epoch_ratio": self.emotion_epoch_ratio,
+            "use_original": self.use_original,
         }
 
     def set_model(self):        
@@ -113,7 +116,7 @@ class LearningEnv:
         self.set_logger_environment(file_name_list, logger_name_list)
         
         # 모델 저장할 폴더 생성
-        self.model_save_path = "/hdd/hjl8708/lightning_model/encoder_total"
+        self.model_save_path = "/hdd/hjl8708/lightning_model/j-hartmann-emotion-english-distilroberta-base(분류레이어까지)"
         if not os.path.exists(self.model_save_path):
             os.makedirs(self.model_save_path)
         
@@ -132,10 +135,15 @@ class LearningEnv:
         
         model = LitPRGMoE(**self.model_args)
         
+        if self.loss_lambda == 1:
+            monitor_val = "emo 3.weighted-f1"
+        else:
+            monitor_val = "binary_cause 5.f1-score"
+        
         checkpoint_callback = ModelCheckpoint(
             dirpath=self.model_save_path, 
             save_top_k=1, 
-            monitor="binary_cause 5.f1-score",
+            monitor=monitor_val,
             mode="max",
             filename=ckpt_filename)
         
@@ -147,8 +155,7 @@ class LearningEnv:
             "callbacks": [checkpoint_callback],
         }
         trainer = L.Trainer(**trainer_config)
-        trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=test_dataloader)
-        trainer.validate(model, dataloaders=valid_dataloader)
+        trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
         trainer.test(model, dataloaders=test_dataloader)
     
     def test(self):

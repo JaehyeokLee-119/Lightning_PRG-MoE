@@ -10,7 +10,7 @@ from module.evaluation import log_metrics, FocalLoss
 from sklearn.metrics import classification_report
 from transformers import AutoModel
 import numpy as np
-from module.lightmodels import EmotionModel, CauseModel, TotalModel
+from module.lightmodels import TotalModel, OriginalPRG_MoE
 
 class LitPRGMoE(pl.LightningModule):
     def __init__(self, **kwargs):
@@ -19,7 +19,12 @@ class LitPRGMoE(pl.LightningModule):
         # 모델 셋팅 파라미터
         self.encoder_name = kwargs['encoder_name']
         # Model
-        self.model = TotalModel(self.encoder_name) # output: (emotion prediction, cause prediction)
+        
+        self.use_original = kwargs['use_original']
+        if self.use_original:
+            self.model = OriginalPRG_MoE() # output: (emotion prediction, cause prediction)
+        else:
+            self.model = TotalModel(self.encoder_name) # output: (emotion prediction, cause prediction)
         
         # 하이퍼파라미터 설정
         self.training_iter = kwargs['training_iter']
@@ -41,11 +46,12 @@ class LitPRGMoE(pl.LightningModule):
         self.test = False # True when testing(on_test_epoch_start ~ on_test_epoch_end)
             # test에서 joint_accuracy를 계산
         self.train_type = 'total'
+        
         if 'bert-base' in self.encoder_name:
             self.is_bert_like = True
         else:
             self.is_bert_like = False
-        
+                        
         self.emotion_epoch = int(self.training_iter * self.emotion_epoch_ratio)
         self.training_iter = self.training_iter + self.emotion_epoch
         
@@ -230,19 +236,16 @@ class LitPRGMoE(pl.LightningModule):
 
     def on_train_epoch_start(self):
         self.make_test_setting(types='train')
-        self.train_type = 'total'
-        # if (self.current_epoch < self.emotion_epoch):
-        #     self.train_type = 'emotion'
-        #     for param in self.emotion_model.parameters():
-        #         param.requires_grad = True
-        #     for param in self.cause_model.parameters():
-        #         param.requires_grad = False
-        # else: 
+        
+        # # train_type 설정 (loss_lambda가 기준)
+        # self.train_type = 'total'
+        # if self.loss_lambda == 0: 
         #     self.train_type = 'cause'
-        #     for param in self.emotion_model.parameters():
-        #         param.requires_grad = False
-        #     for param in self.cause_model.parameters():
-        #         param.requires_grad = True
+        # elif self.loss_lambda == 1:
+        #     self.train_type = 'emotion'
+        # else:
+        #     self.train_type = 'total'
+        print('Train type: ', self.train_type)
         
     def on_train_epoch_end(self):
         self.log_test_result(types='train')
@@ -294,6 +297,15 @@ class LitPRGMoE(pl.LightningModule):
         self.log('emo 2.macro-f1', emo_metrics[1], sync_dist=True)
         self.log('emo 3.weighted-f1', emo_metrics[2], sync_dist=True)
         
+        logging_texts = f'\n[Epoch {self.current_epoch}] / <Emotion Prediction> of {types}\n'+\
+                        f'Train type: {self.train_type}\n'+\
+                        emo_report+\
+                        f'\n<Cause Prediction>'+\
+                        f'\n\taccuracy: \t{acc_cau}'+\
+                        f'\n\tprecision:\t{p_cau}'+\
+                        f'\n\trecall:   \t{r_cau}'+\
+                        f'\n\tf1-score: \t{f1_cau}\n'
+                        
         if (types == 'valid'):
             if (self.best_performance_emo['weighted_f1'] < emo_metrics[2]):
                 self.best_performance_emo['weighted_f1'] = emo_metrics[2]
@@ -309,42 +321,25 @@ class LitPRGMoE(pl.LightningModule):
                 self.best_performance_cau['epoch'] = self.current_epoch
                 self.best_performance_cau['loss'] = loss_avg
             
-            appended_log = f'\nCurrent Best Performance: loss: {self.best_performance_cau["loss"]}\n'+\
-                            f'\t<Emotion Prediction>\n'+\
+            appended_log_valid = f'\nCurrent Best Performance: loss: {self.best_performance_cau["loss"]}\n'+\
+                            f'\t<Emotion Prediction: [Epoch: {self.best_performance_emo["epoch"]}]>\n'+\
                             f'\t\taccuracy: \t{self.best_performance_emo["accuracy"]}\n'+\
                             f'\t\tmacro_f1: \t{self.best_performance_emo["macro_f1"]}\n'+\
                             f'\t\tweighted_f1: \t{self.best_performance_emo["weighted_f1"]}\n'+\
-                            f'\t\tepoch: \t{self.best_performance_emo["epoch"]}\n'+\
-                            f'\t<Cause Prediction>\n'+\
+                            f'\t<Cause Prediction: [Epoch: {self.best_performance_cau["epoch"]}]>\n'+\
                             f'\t\taccuracy: \t{self.best_performance_cau["accuracy"]}\n'+\
                             f'\t\tprecision: \t{self.best_performance_cau["precision"]}\n'+\
                             f'\t\trecall: \t{self.best_performance_cau["recall"]}\n'+\
-                            f'\t\tf1:\t\t{self.best_performance_cau["f1"]}\n'+\
-                            f'\t\tepoch: \t{self.best_performance_cau["epoch"]}\n'
+                            f'\t\tf1:\t\t{self.best_performance_cau["f1"]}\n'
             
-        logging_texts = f'\n[Epoch {self.current_epoch}] / <Emotion Prediction> of {types}\n'+\
-                        f'Train type: {self.train_type}\n'+\
-                        emo_report+\
-                        f'\n<Cause Prediction>'+\
-                        f'\n\taccuracy: \t{acc_cau}'+\
-                        f'\n\tprecision:\t{p_cau}'+\
-                        f'\n\trecall:   \t{r_cau}'+\
-                        f'\n\tf1-score: \t{f1_cau}\n'
-                        
         if (types == 'test'):
             joint_acc = self.cnt_emo_o_pair_o / self.cnt_entire_pair_candidate
             self.log('joint_acc', joint_acc, sync_dist=True)
             logging_texts += f'\n\tjoint_acc: \t{joint_acc}\n'
             
         if (types == 'valid'):
-            logging_texts += appended_log
+            logging_texts += appended_log_valid
         logger.info(logging_texts)
-        # print(f'\n<Emotion Prediction> of {types} / Epoch {self.current_epoch}')
-        # print(emo_report)
-        # print(f'<Cause Prediction>\n\taccuracy: \t{acc_cau}\n\tprecision: \t{p_cau}\n\trecall: \t{r_cau}\n\tf1-score: \t{f1_cau}\n')
-        # if (types=='valid'):
-        #     self.log("ptl/val_loss", self.loss_sum['valid'] / self.batch_count['valid'] )
-        #     self.log("ptl/val_accuracy", emo_metrics[0])
     
     def joint_accuracy_step(self, emotion_prediction, emotion_label_batch, binary_cause_prediction, pair_binary_cause_label_batch, check_pair_pad_idx, check_pair_window_idx, batch_size, n_cause):
         # 각 step마다 실행되며, 추론 결과를 바탕으로 self.cnt_entire_pair_candidate, self.cnt_emo_o_pair_o 값을 더해 업데이트한다

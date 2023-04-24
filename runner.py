@@ -23,22 +23,22 @@ if __name__ == "__main__":
     data_label = [*[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)], '-original_data_DailyDialog']
 
 
-    lr = [5e-5]
-    batch_sizes = [2]
-    gpus = [2,3]
-    loss_lambda_list = [1]
+    lr = [5e-6]
+    batch_sizes = [5]
+    gpus = [3]
+    loss_lambda_list = [0.2, 1]
     accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
     # cause_encoder_name_list = ['roberta-base']
     
         # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
         # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
-    encoder_name_list = ['j-hartmann/emotion-english-roberta-large']
-    use_original_list = [False]
+    encoder_name_list = ['j-hartmann/emotion-english-roberta-large','j-hartmann/emotion-english-roberta-large']
     mode = 'train'
+    use_newfc_list = [True, False]
     
     if mode == 'train':
-        for encoder_name, use_original in zip(encoder_name_list, use_original_list):
+        for encoder_name, use_newfc in zip(encoder_name_list, use_newfc_list):
             for loss_lambda in loss_lambda_list:
                 for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, data_label):
                     for lr_ in lr:
@@ -51,13 +51,10 @@ if __name__ == "__main__":
                             runner.set_value('encoder_name', encoder_name)
                             runner.set_value('accumulate_grad_batches', accumulate_grad_batches)
                             runner.set_value('loss_lambda', loss_lambda)
-                            runner.set_value('use_original', use_original)
+                            runner.set_value('use_newfc', use_newfc)
                             encoder_name_for_filename = encoder_name.replace('/', '-')
                             # runner.set_value('log_folder_name', f'Encoder_loss_lambda{loss_lambda}-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')
-                            if use_original:
-                                runner.set_value('log_folder_name', f'(고정, 감정만)Original_PRG-MoE(batch5, losslambda{loss_lambda})BertModel{dl}')
-                            else:
-                                runner.set_value('log_folder_name', f'(분류레이어까지, losslambda{loss_lambda}){encoder_name_for_filename}(batch{batch_size}, accumulate_grad_batches{accumulate_grad_batches})_{dl}')
+                            runner.set_value('log_folder_name', f'(UseNewFC-{use_newfc}-batch{batch_size},축적{accumulate_grad_batches}-losslambda{loss_lambda}){encoder_name_for_filename}_{dl}')
                             runner.run()
                             
                             del runner

@@ -37,14 +37,11 @@ class LearningEnv:
         self.loss_lambda = kwargs['loss_lambda'] # loss 중 Emotion loss의 비율
 
         self.max_seq_len = kwargs['max_seq_len']
-        self.start_time = datetime.datetime.now().date()
+        self.start_time = datetime.datetime.now()
         self.training_iter = kwargs['training_iter']
         
-        self.emotion_epoch = 20
-        self.cause_epoch = 6
-        
         self.use_original = kwargs['use_original']
-        
+        self.use_newfc = kwargs['use_newfc']
         self.model_name = kwargs['model_name']
         self.port = kwargs['port']
         
@@ -69,12 +66,13 @@ class LearningEnv:
         self.accumulate_grad_batches = kwargs['accumulate_grad_batches']
         # set log directory
         self.encoder_name_for_filename = self.encoder_name.replace('/', '_')
+        self.log_folder_name = kwargs['log_folder_name'].replace('/', '_')
         
         # directory for saving logs
         if kwargs.get('log_folder_name') is None:
             self.log_directory = f"logs/{self.encoder_name_for_filename}_lr{self.learning_rate}_{self.data_label}"
         else:
-            self.log_directory = f"logs/{kwargs['log_folder_name']}_accum_grad_batches({self.accumulate_grad_batches})"
+            self.log_directory = f"logs/{self.log_folder_name}"
             
         self.model_args = {
             "dropout": self.dropout,
@@ -91,6 +89,7 @@ class LearningEnv:
             "encoder_name": self.encoder_name,
             "emotion_epoch_ratio": self.emotion_epoch_ratio,
             "use_original": self.use_original,
+            "use_newfc": self.use_newfc,
         }
 
     def set_model(self):        
@@ -116,7 +115,7 @@ class LearningEnv:
         self.set_logger_environment(file_name_list, logger_name_list)
         
         # 모델 저장할 폴더 생성
-        self.model_save_path = "/hdd/hjl8708/lightning_model/j-hartmann-emotion-english-distilroberta-base(분류레이어까지)"
+        self.model_save_path = "/hdd/hjl8708/0424-lightning"
         if not os.path.exists(self.model_save_path):
             os.makedirs(self.model_save_path)
         
@@ -131,8 +130,8 @@ class LearningEnv:
         # 두 개의 Trainer 사용 (감정, 원인)
         # Emotion Epoch
         epoch = self.training_iter
-        ckpt_filename = f'total-use_test_to_valid-{self.encoder_name_for_filename}{self.data_label}-epoch_{epoch}-lr_{self.learning_rate}-{self.start_time}'
-        
+        # ckpt_filename = f'total-use_test_to_valid-{self.encoder_name_for_filename}{self.data_label}-epoch_{epoch}-lr_{self.learning_rate}-{self.start_time}'
+        ckpt_filename = self.log_folder_name
         model = LitPRGMoE(**self.model_args)
         
         if self.loss_lambda == 1:

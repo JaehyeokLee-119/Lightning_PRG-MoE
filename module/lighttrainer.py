@@ -10,7 +10,7 @@ from module.evaluation import log_metrics, FocalLoss
 from sklearn.metrics import classification_report
 from transformers import AutoModel
 import numpy as np
-from module.lightmodels import TotalModel, OriginalPRG_MoE
+from module.lightmodels import TotalModel, OriginalPRG_MoE, TotalModel_cause_fc
 
 class LitPRGMoE(pl.LightningModule):
     def __init__(self, **kwargs):
@@ -21,11 +21,16 @@ class LitPRGMoE(pl.LightningModule):
         # Model
         
         self.use_original = kwargs['use_original']
+        self.use_newfc = kwargs['use_newfc']
+        
         if self.use_original:
             self.model = OriginalPRG_MoE() # output: (emotion prediction, cause prediction)
         else:
-            self.model = TotalModel(self.encoder_name) # output: (emotion prediction, cause prediction)
-        
+            if self.use_newfc:
+                self.model = TotalModel_cause_fc(self.encoder_name) # output: (emotion prediction, cause prediction)
+            else:
+                self.model = TotalModel(self.encoder_name) # output: (emotion prediction, cause prediction)
+
         # 하이퍼파라미터 설정
         self.training_iter = kwargs['training_iter']
         self.dropout = kwargs['dropout']
@@ -90,6 +95,7 @@ class LitPRGMoE(pl.LightningModule):
             'f1': 0.0,
             'epoch': 0,
             'loss': 0.0,
+            'joint_accuracy': 0.0,
         }
         
         
@@ -236,24 +242,17 @@ class LitPRGMoE(pl.LightningModule):
 
     def on_train_epoch_start(self):
         self.make_test_setting(types='train')
-        
-        # # train_type 설정 (loss_lambda가 기준)
-        # self.train_type = 'total'
-        # if self.loss_lambda == 0: 
-        #     self.train_type = 'cause'
-        # elif self.loss_lambda == 1:
-        #     self.train_type = 'emotion'
-        # else:
-        #     self.train_type = 'total'
         print('Train type: ', self.train_type)
         
     def on_train_epoch_end(self):
         self.log_test_result(types='train')
     
     def on_validation_epoch_start(self):
+        self.test = True
         self.make_test_setting(types='valid')
 
     def on_validation_epoch_end(self):
+        self.test = False
         self.log_test_result(types='valid')
     
     def on_test_epoch_start(self):
@@ -275,7 +274,7 @@ class LitPRGMoE(pl.LightningModule):
         self.loss_sum[types] = 0.0
         self.batch_count[types] = 0
         
-        if (types == 'test'):
+        if self.test == True:
             self.cnt_entire_pair_candidate = 0
             self.cnt_emo_o_pair_o = 0
         
@@ -287,6 +286,14 @@ class LitPRGMoE(pl.LightningModule):
                                                 self.cau_pred_y_list[types], self.cau_true_y_list[types],
                                                 self.cau_pred_y_list_all[types], self.cau_true_y_list_all[types], 
                                                 loss_avg)
+        
+        if types == 'test' or types == 'valid': # joint_accuracy 측정 여부
+            if self.cnt_entire_pair_candidate != 0:
+                joint_acc = self.cnt_emo_o_pair_o / self.cnt_entire_pair_candidate
+                self.log('joint_accuracy', joint_acc, sync_dist=True)
+            else:
+                joint_acc = 0
+                
         self.log('binary_cause 1.loss', loss_avg, sync_dist=True)
         self.log('binary_cause 2.accuracy', acc_cau, sync_dist=True)
         self.log('binary_cause 3.precision', p_cau, sync_dist=True)
@@ -320,6 +327,7 @@ class LitPRGMoE(pl.LightningModule):
                 self.best_performance_cau['recall'] = r_cau
                 self.best_performance_cau['epoch'] = self.current_epoch
                 self.best_performance_cau['loss'] = loss_avg
+                self.best_performance_cau['joint_accuracy'] = joint_acc
             
             appended_log_valid = f'\nCurrent Best Performance: loss: {self.best_performance_cau["loss"]}\n'+\
                             f'\t<Emotion Prediction: [Epoch: {self.best_performance_emo["epoch"]}]>\n'+\
@@ -330,11 +338,10 @@ class LitPRGMoE(pl.LightningModule):
                             f'\t\taccuracy: \t{self.best_performance_cau["accuracy"]}\n'+\
                             f'\t\tprecision: \t{self.best_performance_cau["precision"]}\n'+\
                             f'\t\trecall: \t{self.best_performance_cau["recall"]}\n'+\
-                            f'\t\tf1:\t\t{self.best_performance_cau["f1"]}\n'
+                            f'\t\tf1:\t\t{self.best_performance_cau["f1"]}\n'+\
+                            f'\tJoint Accuracy: {self.best_performance_cau["joint_accuracy"]}]\n'
             
-        if (types == 'test'):
-            joint_acc = self.cnt_emo_o_pair_o / self.cnt_entire_pair_candidate
-            self.log('joint_acc', joint_acc, sync_dist=True)
+        if (types == 'test'): # joint_accuracy 측정 여부
             logging_texts += f'\n\tjoint_acc: \t{joint_acc}\n'
             
         if (types == 'valid'):

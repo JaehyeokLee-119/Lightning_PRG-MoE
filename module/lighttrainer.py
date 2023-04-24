@@ -46,6 +46,7 @@ class LitPRGMoE(pl.LightningModule):
         self.only_emotion = False
         self.n_cause = kwargs['n_cause']
         self.emotion_epoch_ratio = kwargs['emotion_epoch_ratio'] # 이 비율만큼 추가적으로 먼저 감정만 학습
+        self.ckpt_type = kwargs['ckpt_type']
         
         # 모델 내 학습 중 변수 설정
         self.test = False # True when testing(on_test_epoch_start ~ on_test_epoch_end)
@@ -93,6 +94,10 @@ class LitPRGMoE(pl.LightningModule):
             'precision': 0.0,
             'recall': 0.0,
             'f1': 0.0,
+            'epoch': 0,
+            'loss': 0.0,
+        }
+        self.best_performance_joint = {
             'epoch': 0,
             'loss': 0.0,
             'joint_accuracy': 0.0,
@@ -311,7 +316,8 @@ class LitPRGMoE(pl.LightningModule):
                         f'\n\taccuracy: \t{acc_cau}'+\
                         f'\n\tprecision:\t{p_cau}'+\
                         f'\n\trecall:   \t{r_cau}'+\
-                        f'\n\tf1-score: \t{f1_cau}\n'
+                        f'\n\tf1-score: \t{f1_cau}'+\
+                        f'\njoint Accuracy:     \t{joint_acc}'
                         
         if (types == 'valid'):
             if (self.best_performance_emo['weighted_f1'] < emo_metrics[2]):
@@ -327,7 +333,10 @@ class LitPRGMoE(pl.LightningModule):
                 self.best_performance_cau['recall'] = r_cau
                 self.best_performance_cau['epoch'] = self.current_epoch
                 self.best_performance_cau['loss'] = loss_avg
-                self.best_performance_cau['joint_accuracy'] = joint_acc
+            if (self.best_performance_joint['joint_accuracy'] < joint_acc):
+                self.best_performance_joint['joint_accuracy'] = joint_acc
+                self.best_performance_joint['epoch'] = self.current_epoch
+                self.best_performance_joint['loss'] = loss_avg
             
             appended_log_valid = f'\nCurrent Best Performance: loss: {self.best_performance_cau["loss"]}\n'+\
                             f'\t<Emotion Prediction: [Epoch: {self.best_performance_emo["epoch"]}]>\n'+\
@@ -339,7 +348,7 @@ class LitPRGMoE(pl.LightningModule):
                             f'\t\tprecision: \t{self.best_performance_cau["precision"]}\n'+\
                             f'\t\trecall: \t{self.best_performance_cau["recall"]}\n'+\
                             f'\t\tf1:\t\t{self.best_performance_cau["f1"]}\n'+\
-                            f'\tJoint Accuracy: {self.best_performance_cau["joint_accuracy"]}]\n'
+                            f'\t<Joint Accuracy: {self.best_performance_joint["joint_accuracy"]} [Epoch: {self.best_performance_joint["epoch"]}>\n'
             
         if (types == 'test'): # joint_accuracy 측정 여부
             logging_texts += f'\n\tjoint_acc: \t{joint_acc}\n'

@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--max_seq_len', help='the max length of each tokenized utterance', default=75, type=int)
     parser.add_argument('--contain_context', help='While tokenizing, previous utterances are contained or not', default=False)
     parser.add_argument('--loss_lambda', help='Ratio of emotion loss in the total loss', default=0.2)
+    parser.add_argument('--ckpt_type', help="policy to choose best model among 'cause-f1', 'emotion-f1', 'joint_accuracy'", default='cause-f1')
     
     # 원래의 PRG-MoE 모델을 사용한다 (데이터 비교를 위해)
     parser.add_argument('--use_original', default=False)

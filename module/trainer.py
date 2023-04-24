@@ -45,6 +45,8 @@ class LearningEnv:
         self.model_name = kwargs['model_name']
         self.port = kwargs['port']
         
+        self.ckpt_type = kwargs['ckpt_type']
+        
         self.pretrained_model = kwargs['pretrained_model']
         # Hyperparameters
         self.dropout = kwargs['dropout']
@@ -90,6 +92,7 @@ class LearningEnv:
             "emotion_epoch_ratio": self.emotion_epoch_ratio,
             "use_original": self.use_original,
             "use_newfc": self.use_newfc,
+            "ckpt_type": self.ckpt_type,
         }
 
     def set_model(self):        
@@ -134,11 +137,13 @@ class LearningEnv:
         ckpt_filename = self.log_folder_name
         model = LitPRGMoE(**self.model_args)
         
-        if self.loss_lambda == 1:
+        if self.ckpt_type == 'emotion-f1':
             monitor_val = "emo 3.weighted-f1"
-        else:
+        elif self.ckpt_type == 'cause-f1':
             monitor_val = "binary_cause 5.f1-score"
-        
+        elif self.ckpt_type == 'joint_accuracy':
+            monitor_val = "joint_accuracy"
+            
         checkpoint_callback = ModelCheckpoint(
             dirpath=self.model_save_path, 
             save_top_k=1, 

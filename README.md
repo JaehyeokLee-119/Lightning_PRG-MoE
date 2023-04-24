@@ -18,7 +18,8 @@ pytorch Lightning을 활용<br>
 - cuda 11.6.1<br>
 - transformers 4.26.1<br>
 - scikit-learn 1.2.0<br>
-- pytorch-lightning 2.0.1<br>
+- dotenv: pip install python-dotenv<br>
+- pytorch-lightning 2.0.1: pip install lightning<br> 
 - peft: !pip install -q git+https://github.com/huggingface/transformers.git@main git+https://github.com/huggingface/peft.git
 
 ## Dataset

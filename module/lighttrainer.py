@@ -316,8 +316,7 @@ class LitPRGMoE(pl.LightningModule):
                         f'\n\taccuracy: \t{acc_cau}'+\
                         f'\n\tprecision:\t{p_cau}'+\
                         f'\n\trecall:   \t{r_cau}'+\
-                        f'\n\tf1-score: \t{f1_cau}'+\
-                        f'\njoint Accuracy:     \t{joint_acc}'
+                        f'\n\tf1-score: \t{f1_cau}'
                         
         if (types == 'valid'):
             if (self.best_performance_emo['weighted_f1'] < emo_metrics[2]):

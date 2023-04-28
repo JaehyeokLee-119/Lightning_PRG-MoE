@@ -511,10 +511,8 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     # <<[[ Emotion-cause 부분 ]]>>
     # emo_cause_pred_y_list, emo_cause_true_y_list, emo_cause_pred_y_list_all, emo_cause_true_y_list_all,  
     
-    print('emo_cause_list: \n', confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu')), '\n')
-    print('emo_cause_list_all: \n', confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu')), '\n')
-    
-    # print(classification_report(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), zero_division=0, digits=4))
+    # print('emo_cause_list: \n', confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu')), '\n')
+    # print('emo_cause_list_all: \n', confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu')), '\n')
     
     p_emo_cau = precision_score(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), average= "macro")
     r_emo_cau = recall_score(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), average= "macro")

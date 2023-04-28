@@ -109,6 +109,7 @@ class LearningEnv:
             self.test()
         else:
             self.train()
+            # self.test()
     
     def pre_setting(self):
         # 로거 설정
@@ -118,7 +119,7 @@ class LearningEnv:
         self.set_logger_environment(file_name_list, logger_name_list)
         
         # 모델 저장할 폴더 생성
-        self.model_save_path = "/hdd/hjl8708/0424-lightning"
+        self.model_save_path = "/hdd/hjl8708/0428-pair-emotion-lightning"
         if not os.path.exists(self.model_save_path):
             os.makedirs(self.model_save_path)
         
@@ -141,8 +142,8 @@ class LearningEnv:
             monitor_val = "emo 3.weighted-f1"
         elif self.ckpt_type == 'cause-f1':
             monitor_val = "binary_cause 5.f1-score"
-        elif self.ckpt_type == 'joint_accuracy':
-            monitor_val = "joint_accuracy"
+        elif self.ckpt_type == 'joint-f1':
+            monitor_val = "emo-cau 3.f1-score"
             
         checkpoint_callback = ModelCheckpoint(
             dirpath=self.model_save_path, 
@@ -164,6 +165,9 @@ class LearningEnv:
     
     def test(self):
         test_dataloader = self.get_dataloader(self.test_dataset, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
+        
+        model_path = self.model_save_path+f"/{self.log_folder_name}.ckpt"
+        self.model = LitPRGMoE.load_from_checkpoint(checkpoint_path=self.pretrained_model, **self.model_args)
         trainer = L.Trainer()
         trainer.test(self.model, dataloaders=test_dataloader)  
     

@@ -256,7 +256,9 @@ def tokenize_conversation(conversation, device, max_seq_len, encoder_name):
 
 
 def get_pad_idx(utterance_input_ids_batch, encoder_name):
-    # input utterance에 대한 pad idx를 구한다 (유효한 토큰은 1, pad는 0)
+    # 하나의 batch (dialog) 속에서, 각 token들이 pad인지 아닌지를 담은 idx를 구한다 (유효한 토큰은 NOT_ZERO, pad는 0)
+    # 입력: batch 개의 dialog [5, 28, 75]
+    # 출력: batch 개의 dialog 속 유효성을 모두 이어서 담은 idx [140] (5*28)
     batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
     
     if 'bert-base' in encoder_name:
@@ -274,19 +276,21 @@ def get_pair_pad_idx(utterance_input_ids_batch, encoder_name, window_constraint=
     # input utterance batch에 대한 pad idx를 구한다 (유효한 pair는 1, pad는 0)
     batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
     
-    check_pad_idx = get_pad_idx(utterance_input_ids_batch, encoder_name)
+    check_pad_idx = get_pad_idx(utterance_input_ids_batch, encoder_name) # dialog batch에서 padding은 0으로, 유효한 토큰은 그냥 숫자가 있는 idx [140]
 
     if emotion_pred is not None:
-        emotion_pred = torch.argmax(emotion_pred, dim=1)
+        emotion_pred = torch.argmax(emotion_pred, dim=1) # 7차원 분류결과([140, 7])를 1차원으로 줄임(가장 큰 값의 index로, [140])
         
     check_pair_window_idx = list()
-    for batch in check_pad_idx.view(-1, max_doc_len):
-        pair_window_idx = torch.zeros(int(max_doc_len * (max_doc_len + 1) / 2))
-        for end_t in range(1, len(batch.nonzero()) + 1):
-            if emotion_pred is not None and emotion_pred[end_t - 1] == 6:
+    for batch in check_pad_idx.view(-1, max_doc_len): # check_pad_idx [140] -> [5,28]해서, batch=[28]
+        pair_window_idx = torch.zeros(int(max_doc_len * (max_doc_len + 1) / 2)) # pair window를 넣을 공간을 만든다 (28*29/2=406)
+        for end_t in range(1, len(batch.nonzero()) + 1): # 각 dialog속의 '진짜 문장 길이'만큼 반복
+            if emotion_pred is not None and emotion_pred[end_t - 1] == 6: # emotion이 6(중립)인 경우는 제외
                 continue
             
-            pair_window_idx[max(0, int(end_t * (end_t + 1) / 2) - window_constraint):int(end_t * (end_t + 1) / 2)] = 1
+            # non-neutral인 경우, window_constraint만큼의 window를 만들어서 1로 채운다
+            pair_window_idx[max(0, int(end_t * (end_t + 1) / 2) - window_constraint):int(end_t * (end_t + 1) / 2)] = 1 
+            
         check_pair_window_idx.append(pair_window_idx)
     
     return torch.stack(check_pair_window_idx)

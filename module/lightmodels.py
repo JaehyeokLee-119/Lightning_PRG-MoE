@@ -53,7 +53,9 @@ class TotalModel_cause_fc(pl.LightningModule):
         
         pooled_output_cause = self.fc_cau(pooled_output) # FC 하나를 추가
         pair_embedding = self.get_pair_embedding(pooled_output_cause, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
-        gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach())
+            # -> 2030개의 pair_embedding 생성됨 ([5, 406, 1552])
+        gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach()) # [5, 406, 1552] -> [2030, 1552]
+            # pair마다 gating probability를 계산 [2030, 4]
 
         gating_prob = self.guiding_lambda * self.get_subtask_label(
             input_ids, speaker_ids, emotion_prediction).view(-1, self.n_expert) + (1 - self.guiding_lambda) * gating_prob
@@ -74,10 +76,13 @@ class TotalModel_cause_fc(pl.LightningModule):
 
         concatenated_embedding = torch.cat((utterance_representation, emotion_prediction, 
                                             speaker_ids.view(-1).unsqueeze(1)), dim=1)
-        
+
+                                    # utterance_representation [140, 768], emotion_prediction [140, 7], speaker_ids [5,28] -> [140, 1]
+                                    # concatenated_embedding = [140, 776]
+                                    
         pair_embedding = list()
-        for batch in concatenated_embedding.view(batch_size, max_doc_len, -1):
-            pair_per_batch = list()
+        for batch in concatenated_embedding.view(batch_size, max_doc_len, -1): # [140,776] -> [5,28,776]
+            pair_per_batch = list() # batch: [28,776]
             for end_t in range(max_doc_len):
                 for t in range(end_t + 1):
                     # backward 시, cycle이 생겨 문제가 생길 경우, batch[end_t].detach() 시도.
@@ -86,7 +91,7 @@ class TotalModel_cause_fc(pl.LightningModule):
 
         pair_embedding = torch.stack(pair_embedding).to(input_ids.device)
 
-        return pair_embedding
+        return pair_embedding # [5, 406, 1552]
     
     def get_subtask_label(self, input_ids, speaker_ids, emotion_prediction):
         batch_size, max_doc_len, max_seq_len = input_ids.shape

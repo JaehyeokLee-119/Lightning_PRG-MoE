@@ -420,7 +420,7 @@ class LitPRGMoE(pl.LightningModule):
                             f'\t\tprecision: \t{self.best_performance_cau["precision"]}\n'+\
                             f'\t\trecall: \t{self.best_performance_cau["recall"]}\n'+\
                             f'\t\tf1:\t\t{self.best_performance_cau["f1"]}\n'+\
-                            f'\t<Emotion-Cause Prediction: [Epoch: {self.best_performance_emo_cau["epoch"]}]\n'+\
+                            f'\t<Emotion-Cause Prediction: [Epoch: {self.best_performance_emo_cau["epoch"]}]>\n'+\
                             f'\t\tprecision: \t{self.best_performance_emo_cau["precision"]}\n'+\
                             f'\t\trecall: \t{self.best_performance_emo_cau["recall"]}\n'+\
                             f'\t\tf1:\t\t{self.best_performance_emo_cau["f1"]}\n'
@@ -514,8 +514,8 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     # print('emo_cause_list: \n', confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu')), '\n')
     # print('emo_cause_list_all: \n', confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu')), '\n')
     
-    p_emo_cau = precision_score(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), average= "micro")
-    r_emo_cau = recall_score(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), average= "micro")
+    p_emo_cau = precision_score(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), average= "macro")
+    r_emo_cau = recall_score(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), average= "macro")
     f1_emo_cau = 2 * p_emo_cau * r_emo_cau / (p_emo_cau + r_emo_cau) if p_emo_cau + r_emo_cau != 0 else 0
     
     # check_pair_pred_true_idx = (torch.cat(emo_cause_pred_y_list) % 10 > 0) # list 중에, 모델이 cause라고 prediction한 것만 True

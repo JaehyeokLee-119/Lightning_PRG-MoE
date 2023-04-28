@@ -32,16 +32,17 @@ if __name__ == "__main__":
     
         # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
         # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
-    encoder_name_list = ['bert-base-cased']
+    encoder_name_list = ['bert-base-cased']#['distilroberta-base', 'j-hartmann/emotion-english-distilroberta-base']
+    encoder_label_list = ['PRG-MoE(BERT)']#['Distilroberta-base', 'J-hartmann-distilroberta-base']
     mode = 'train'
     use_newfc = False
-    epoch = 25
-    ckpt_type_list = ['cause-f1', 'joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
+    epoch = 20
+    ckpt_type_list = ['joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
         # 어떤 것이 높은 모델을 저장할 것인지 => 이거의미없음 (조금 있는 것 같기도)
         
     if mode == 'train':
         for ckpt_type in ckpt_type_list:
-            for encoder_name in encoder_name_list:
+            for encoder_name, encoder_label in zip(encoder_name_list, encoder_label_list):
                 for loss_lambda in loss_lambda_list:
                     for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, data_label):
                         for lr_ in lr:
@@ -50,16 +51,16 @@ if __name__ == "__main__":
                                 runner.set_dataset(tr, va, te, dl)
                                 runner.set_gpus(gpus)
                                 runner.set_hyperparameters(learning_rate=lr_, batch_size=batch_size)
-                                runner.set_value('training_iter', 30)
+                                runner.set_value('training_iter', epoch)
                                 runner.set_value('encoder_name', encoder_name)
                                 runner.set_value('accumulate_grad_batches', accumulate_grad_batches)
                                 runner.set_value('loss_lambda', loss_lambda)
                                 runner.set_value('ckpt_type', ckpt_type)
                                 runner.set_value('use_newfc', use_newfc)
-                                runner.set_value('log_directory', 'logs_test')
+                                runner.set_value('log_directory', 'logs')
                                 encoder_name_for_filename = encoder_name.replace('/', '-')
                                 # runner.set_value('log_folder_name', f'Encoder_loss_lambda{loss_lambda}-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')
-                                runner.set_value('log_folder_name', f'PRG-MoE(BERT)-Epoch{epoch}: for BEST {ckpt_type}, losslambda{loss_lambda}, UseNewFC-{use_newfc}-{encoder_name_for_filename}_{dl}')
+                                runner.set_value('log_folder_name', f'{encoder_label}-Epoch{epoch}: for BEST {ckpt_type}(macro), losslambda{loss_lambda}, UseNewFC-{use_newfc}-{encoder_name_for_filename}_{dl}')
                                 runner.run()
                                 
                                 del runner

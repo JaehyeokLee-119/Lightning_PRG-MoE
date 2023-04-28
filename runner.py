@@ -24,8 +24,8 @@ if __name__ == "__main__":
     
     lr = [5e-5]
     batch_sizes = [5]
-    gpus = [1]
-    loss_lambda_list = [0.2, 0.4, 0.6, 0.8]
+    gpus = [3]
+    loss_lambda_list = [0.4]
     accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
     # cause_encoder_name_list = ['roberta-base']
@@ -39,7 +39,9 @@ if __name__ == "__main__":
     epoch = 20
     ckpt_type_list = ['joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
         # 어떤 것이 높은 모델을 저장할 것인지 => 이거의미없음 (조금 있는 것 같기도)
-        
+    
+    multiclass_avg_type = 'macro'
+    
     if mode == 'train':
         for ckpt_type in ckpt_type_list:
             for encoder_name, encoder_label in zip(encoder_name_list, encoder_label_list):
@@ -57,6 +59,7 @@ if __name__ == "__main__":
                                 runner.set_value('loss_lambda', loss_lambda)
                                 runner.set_value('ckpt_type', ckpt_type)
                                 runner.set_value('use_newfc', use_newfc)
+                                runner.set_value('multiclass_avg_type', multiclass_avg_type)
                                 runner.set_value('log_directory', 'logs')
                                 encoder_name_for_filename = encoder_name.replace('/', '-')
                                 # runner.set_value('log_folder_name', f'Encoder_loss_lambda{loss_lambda}-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')

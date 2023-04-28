@@ -40,13 +40,13 @@ class LitPRGMoE(pl.LightningModule):
         self.n_emotion = 7
         self.guiding_lambda = kwargs['guiding_lambda']
         self.loss_lambda = kwargs['loss_lambda'] # loss 중 Emotion loss의 비율
-        
         # 학습 방법 설정
         self.num_unfreeze = kwargs['unfreeze']
         self.only_emotion = False
         self.n_cause = kwargs['n_cause']
         self.emotion_epoch_ratio = kwargs['emotion_epoch_ratio'] # 이 비율만큼 추가적으로 먼저 감정만 학습
         self.ckpt_type = kwargs['ckpt_type']
+        self.multiclass_avg_type = kwargs['multiclass_avg_type']
         
         # 모델 내 학습 중 변수 설정
         self.test = False # True when testing(on_test_epoch_start ~ on_test_epoch_end)
@@ -360,7 +360,7 @@ class LitPRGMoE(pl.LightningModule):
                                                 self.cau_pred_y_list_all[types], self.cau_true_y_list_all[types], 
                                                 self.emo_cause_pred_y_list[types], self.emo_cause_true_y_list[types],
                                                 self.emo_cause_pred_y_list_all[types], self.emo_cause_true_y_list_all[types],
-                                                loss_avg)
+                                                loss_avg, self.multiclass_avg_type)
         
         self.log('binary_cause 1.loss', loss_avg, sync_dist=True)
         self.log('binary_cause 2.accuracy', acc_cau, sync_dist=True)
@@ -483,7 +483,7 @@ class LitPRGMoE(pl.LightningModule):
 def log_metrics(emo_pred_y_list, emo_true_y_list, 
                 cau_pred_y_list, cau_true_y_list, cau_pred_y_list_all, cau_true_y_list_all, 
                 emo_cause_pred_y_list, emo_cause_true_y_list, emo_cause_pred_y_list_all, emo_cause_true_y_list_all,                
-                loss_avg):
+                loss_avg, multiclass_avg_type):
     # <<[[ Emotion 부분 ]]>>
     label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
     # logger.info('\n' + metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_))
@@ -513,9 +513,9 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     
     # print('emo_cause_list: \n', confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu')), '\n')
     # print('emo_cause_list_all: \n', confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu')), '\n')
-    
-    p_emo_cau = precision_score(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), average= "macro")
-    r_emo_cau = recall_score(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), average= "macro")
+    # (0,10,20,30,40,50,60)+(0,1)
+    p_emo_cau = precision_score(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), average=multiclass_avg_type)
+    r_emo_cau = recall_score(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), average=multiclass_avg_type)
     f1_emo_cau = 2 * p_emo_cau * r_emo_cau / (p_emo_cau + r_emo_cau) if p_emo_cau + r_emo_cau != 0 else 0
     
     # check_pair_pred_true_idx = (torch.cat(emo_cause_pred_y_list) % 10 > 0) # list 중에, 모델이 cause라고 prediction한 것만 True

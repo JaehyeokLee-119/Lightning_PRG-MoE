@@ -35,6 +35,7 @@ class LearningEnv:
         self.data_label = kwargs['data_label']
         
         self.loss_lambda = kwargs['loss_lambda'] # loss 중 Emotion loss의 비율
+        self.multiclass_avg_type = kwargs['multiclass_avg_type']
 
         self.max_seq_len = kwargs['max_seq_len']
         self.start_time = datetime.datetime.now()
@@ -93,6 +94,7 @@ class LearningEnv:
             "use_original": self.use_original,
             "use_newfc": self.use_newfc,
             "ckpt_type": self.ckpt_type,
+            "multiclass_avg_type": self.multiclass_avg_type
         }
 
     def set_model(self):        

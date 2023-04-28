@@ -40,6 +40,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--log_directory', default='logs', type=str)
     parser.add_argument('--log_folder_name', default=None, type=str)
     parser.add_argument('--data_label', help='the label that attaches to saved model', default='dailydialog_fold_0')
+    parser.add_argument('--multiclass_avg_type', default='macro', type=str)
+
 
     parser.add_argument('--only_emotion', help='only emotion classification', default=False, type=bool)
     parser.add_argument('--only_cause', help='only cause classification', default=False, type=bool)

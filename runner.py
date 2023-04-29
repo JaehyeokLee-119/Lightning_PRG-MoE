@@ -38,7 +38,7 @@ if __name__ == "__main__":
     use_newfc = False
     epoch = 20
     ckpt_type_list = ['joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
-    
+    model_save_path = "/hdd/hjl8708/0428-pair-emotion-lightning"
     multiclass_avg_type = 'macro'
     
     if mode == 'train':
@@ -54,6 +54,7 @@ if __name__ == "__main__":
                                 runner.set_hyperparameters(learning_rate=lr_, batch_size=batch_size)
                                 runner.set_value('training_iter', epoch)
                                 runner.set_value('encoder_name', encoder_name)
+                                runner.set_value('model_save_path', model_save_path)
                                 runner.set_value('accumulate_grad_batches', accumulate_grad_batches)
                                 runner.set_value('loss_lambda', loss_lambda)
                                 runner.set_value('ckpt_type', ckpt_type)

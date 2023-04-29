@@ -24,6 +24,7 @@ class LearningEnv:
         #     wandb.init(project=self.wandb_project_name)
         self.only_emotion = kwargs['only_emotion']
         self.emo_model_path = kwargs['emo_model_path']
+        self.model_save_path = kwargs['model_save_path']
         
         self.gpus = kwargs['gpus']
         self.single_gpu = len(self.gpus) == 1
@@ -121,7 +122,6 @@ class LearningEnv:
         self.set_logger_environment(file_name_list, logger_name_list)
         
         # 모델 저장할 폴더 생성
-        self.model_save_path = "/hdd/hjl8708/0428-pair-emotion-lightning"
         if not os.path.exists(self.model_save_path):
             os.makedirs(self.model_save_path)
         

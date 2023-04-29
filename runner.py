@@ -24,7 +24,7 @@ if __name__ == "__main__":
     
     lr = [5e-5]
     batch_sizes = [5]
-    gpus = [3]
+    gpus = [1]
     loss_lambda_list = [0.4]
     accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
@@ -38,7 +38,6 @@ if __name__ == "__main__":
     use_newfc = False
     epoch = 20
     ckpt_type_list = ['joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
-        # 어떤 것이 높은 모델을 저장할 것인지 => 이거의미없음 (조금 있는 것 같기도)
     
     multiclass_avg_type = 'macro'
     

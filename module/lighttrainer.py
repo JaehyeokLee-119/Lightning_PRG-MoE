@@ -379,12 +379,12 @@ class LitPRGMoE(pl.LightningModule):
         logging_texts = f'\n[Epoch {self.current_epoch}] / <Emotion Prediction> of {types}\n'+\
                         f'Train type: {self.train_type}\n'+\
                         emo_report+\
-                        f'\n<Cause Prediction>'+\
+                        f'\n<Emotion-Cause Prediction>'+\
                         f'\n\taccuracy: \t{acc_cau}'+\
                         f'\n\tprecision:\t{p_cau}'+\
                         f'\n\trecall:   \t{r_cau}'+\
                         f'\n\tf1-score: \t{f1_cau}'+\
-                        f'\n\n<Emotion-Cause Prediction>'+\
+                        f'\n\n<Pair-Emotion Prediction>'+\
                         f'\n\tprecision:\t{p_emo_cau}'+\
                         f'\n\trecall:   \t{r_emo_cau}'+\
                         f'\n\tf1-score: \t{f1_emo_cau}'+\
@@ -415,18 +415,46 @@ class LitPRGMoE(pl.LightningModule):
                             f'\t\taccuracy: \t{self.best_performance_emo["accuracy"]}\n'+\
                             f'\t\tmacro_f1: \t{self.best_performance_emo["macro_f1"]}\n'+\
                             f'\t\tweighted_f1: \t{self.best_performance_emo["weighted_f1"]}\n'+\
-                            f'\t<Cause Prediction: [Epoch: {self.best_performance_cau["epoch"]}]>\n'+\
+                            f'\t<Emotion-Cause Prediction: [Epoch: {self.best_performance_cau["epoch"]}]>\n'+\
                             f'\t\taccuracy: \t{self.best_performance_cau["accuracy"]}\n'+\
                             f'\t\tprecision: \t{self.best_performance_cau["precision"]}\n'+\
                             f'\t\trecall: \t{self.best_performance_cau["recall"]}\n'+\
                             f'\t\tf1:\t\t{self.best_performance_cau["f1"]}\n'+\
-                            f'\t<Emotion-Cause Prediction: [Epoch: {self.best_performance_emo_cau["epoch"]}]>\n'+\
+                            f'\t<Pair-Emotion Prediction: [Epoch: {self.best_performance_emo_cau["epoch"]}]>\n'+\
                             f'\t\tprecision: \t{self.best_performance_emo_cau["precision"]}\n'+\
                             f'\t\trecall: \t{self.best_performance_emo_cau["recall"]}\n'+\
                             f'\t\tf1:\t\t{self.best_performance_emo_cau["f1"]}\n'
             
         if (types == 'valid'):
             logging_texts += appended_log_valid
+            
+        if (types == 'test'):
+            # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
+            label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
+            confusion_pred = confusion_matrix(torch.cat(self.emo_cause_true_y_list[types]).to('cpu'), torch.cat(self.emo_cause_pred_y_list[types]).to('cpu'), labels=label_)
+            confusion_all = confusion_matrix(torch.cat(self.emo_cause_true_y_list_all[types]).to('cpu'), torch.cat(self.emo_cause_pred_y_list_all[types]).to('cpu'), labels=label_)
+            
+            print("Confusion_pred matrix")
+            print('\t', end="")
+            for label in label_:
+                print(label, '\t', end="")
+            print("")
+            for row, label in zip(confusion_pred, label_):
+                print(label, '\t', end="")
+                for col in row:
+                    print(col, '\t', end="")
+                print("")
+            print("Confusion_all matrix")
+            print('\t', end="")
+            for label in label_:
+                print(label, '\t', end="")
+            print("")
+            for row, label in zip(confusion_all, label_):
+                print(label, '\t', end="")
+                for col in row:
+                    print(col, '\t', end="")
+                print("")
+            
         logger.info(logging_texts)
         
     def get_pair_embedding(self, pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids):
@@ -514,28 +542,51 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     # print('emo_cause_list: \n', confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu')), '\n')
     # print('emo_cause_list_all: \n', confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu')), '\n')
     # (0,10,20,30,40,50,60)+(0,1)
-    p_emo_cau = precision_score(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), average=multiclass_avg_type)
-    r_emo_cau = recall_score(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), average=multiclass_avg_type)
+    
+    # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
+    label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
+    confusion_pred = confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), labels=label_)
+    confusion_all = confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), labels=label_)
+    
+    # 1, 11, 21, 31, 41, 51 순서로
+    idx_list = [0, 1, 2, 3, 4, 5]
+    pred_num_acc_list = [0, 0, 0, 0, 0, 0]
+    pred_num_acc_list_all = [0, 0, 0, 0, 0, 0]
+    pred_num_precision_denominator_dict = [0, 0, 0, 0, 0, 0]
+    pred_num_recall_denominator_dict = [0, 0, 0, 0, 0, 0]
+    
+    for i in idx_list:
+        pred_num_acc_list[i] = confusion_pred[i][i]
+        pred_num_acc_list_all[i] = confusion_all[i][i]
+        pred_num_precision_denominator_dict[i] = sum(confusion_pred[i,:])
+        pred_num_recall_denominator_dict[i] = sum(confusion_all[:,i])
+    
+    '''# Confusion matrix 시각화
+    print('\t', end="")
+    for label in label_:
+        print(label, '\t', end="")
+    print("")
+    for row, label in zip(confusion_pred, label_):
+        print(label, '\t', end="")
+        for col in row:
+            print(col, '\t', end="")
+        print("")
+        '''
+    '''
+    <Pair-emotion F1 알고리즘 정리>
+    - 각 Pair-Emotion 예측 여부에 따라 7*2 크기의 confusion matrix를 만듦
+    - 클래스 1, 11, 21, 31, 41, 51 [(pair,angry), (pair,disgust), (pair,fear), ..., (pair,surprise)]에 대해 각각의 precision, recall 구한다.
+    - 구한 각 클래스의 precision, recall을 평균내어 전체 precision, recall 구한다 (macro average)
+    - 전체 precision, recall을 통해 Pair-Emotion F1 구한다.
+    '''
+    p_emo_cau = 0; r_emo_cau = 0
+    for num_acc, prec_denom in zip(pred_num_acc_list, pred_num_precision_denominator_dict):
+        p_emo_cau += num_acc / prec_denom if prec_denom != 0 else 0
+    for num_acc_all, rec_denom in zip(pred_num_acc_list_all, pred_num_recall_denominator_dict):
+        r_emo_cau += num_acc_all / rec_denom if rec_denom != 0 else 0
+    p_emo_cau /= len(idx_list)
+    r_emo_cau /= len(idx_list)
     f1_emo_cau = 2 * p_emo_cau * r_emo_cau / (p_emo_cau + r_emo_cau) if p_emo_cau + r_emo_cau != 0 else 0
-    
-    # check_pair_pred_true_idx = (torch.cat(emo_cause_pred_y_list) % 10 > 0) # list 중에, 모델이 cause라고 prediction한 것만 True
-    # check_pair_true_true_idx = (torch.cat(emo_cause_true_y_list) % 10 > 0) # list 중에, label이 cause인 것만 True
-    # check_pair_true_true_idx_all = (torch.cat(emo_cause_true_y_list_all) % 10 > 0) # list 중에, label이 cause인 것만 True
-    # check_pair_emotion_equal_idx = (torch.cat(emo_cause_pred_y_list) // 10 == torch.cat(emo_cause_true_y_list) // 10) # list 중에, 모델이 emotion이랑 label이랑 같은 것만 True
-    # check_pair_emotion_equal_idx_all = (torch.cat(emo_cause_pred_y_list_all) // 10 == torch.cat(emo_cause_true_y_list_all) // 10) # list 중에, 모델이 emotion이랑 label이랑 같은 것만 True
-    
-    # emo_cau_TP = (check_pair_emotion_equal_idx&(check_pair_pred_true_idx & check_pair_true_true_idx)).sum()
-    #     # 감정이 일치하는 것 중에서, pair가 label과 prediction 모두 pair라고 예측한 것
-        
-    # # Prediction에서, Emotion이 label과 일치하며 "Cause라고 예측한 개수"를 센다
-    # emo_cau_TP_FP = (check_pair_pred_true_idx & check_pair_emotion_equal_idx).sum()
-    
-    # # Label에서, 전체 리스트 속, 감정이 일치하는 것 중에서 "True Pair" 개수를 센다
-    # emo_cau_TP_FN = (check_pair_emotion_equal_idx_all & check_pair_true_true_idx_all).sum()
-    
-    # p_emo_cau = (emo_cau_TP / emo_cau_TP_FP) if emo_cau_TP_FP != 0 else 0
-    # r_emo_cau = (emo_cau_TP / emo_cau_TP_FN) if emo_cau_TP_FN != 0 else 0
-    # f1_emo_cau = 2 * p_emo_cau * r_emo_cau / (p_emo_cau + r_emo_cau) if p_emo_cau + r_emo_cau != 0 else 0
     
     return emo_report_str, emo_metrics, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau
 

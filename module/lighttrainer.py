@@ -428,34 +428,36 @@ class LitPRGMoE(pl.LightningModule):
         if (types == 'valid'):
             logging_texts += appended_log_valid
             
+        logger.info(logging_texts)
         if (types == 'test'):
             # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
             label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
             confusion_pred = confusion_matrix(torch.cat(self.emo_cause_true_y_list[types]).to('cpu'), torch.cat(self.emo_cause_pred_y_list[types]).to('cpu'), labels=label_)
             confusion_all = confusion_matrix(torch.cat(self.emo_cause_true_y_list_all[types]).to('cpu'), torch.cat(self.emo_cause_pred_y_list_all[types]).to('cpu'), labels=label_)
             
-            print("Confusion_pred matrix")
-            print('\t', end="")
+            confusion_log = ""
+            confusion_log+="[Confusion_pred matrix]\n"
+            confusion_log+='\t'
             for label in label_:
-                print(label, '\t', end="")
-            print("")
+                confusion_log+=f'{label}\t'
+            confusion_log+="\n"
             for row, label in zip(confusion_pred, label_):
-                print(label, '\t', end="")
+                confusion_log+=f'{label}\t'
                 for col in row:
-                    print(col, '\t', end="")
-                print("")
-            print("Confusion_all matrix")
-            print('\t', end="")
+                    confusion_log+=f'{col}\t'
+                confusion_log+="\n"
+            confusion_log+="[Confusion_all matrix]\n"
+            confusion_log+='\t'
             for label in label_:
-                print(label, '\t', end="")
-            print("")
+                confusion_log+=f'{label}\t'
+            confusion_log+="\n"
             for row, label in zip(confusion_all, label_):
-                print(label, '\t', end="")
+                confusion_log+=f'{label}\t'
                 for col in row:
-                    print(col, '\t', end="")
-                print("")
+                    confusion_log+=f'{col}\t'
+                confusion_log+="\n"
+            logger.info(confusion_log)
             
-        logger.info(logging_texts)
         
     def get_pair_embedding(self, pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids):
         batch_size, max_doc_len, max_seq_len = input_ids.shape

@@ -586,7 +586,7 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     '''
     # 불균형이 심하므로 micro
     micro_precision = sum(pred_num_acc_list) / sum(pred_num_precision_denominator_dict)
-    micro_recall = sum(pred_num_acc_list) / sum(pred_num_recall_denominator_dict)
+    micro_recall = sum(pred_num_acc_list_all) / sum(pred_num_recall_denominator_dict)
     micro_f1 = 2 * micro_precision * micro_recall / (micro_precision + micro_recall) if micro_precision + micro_recall != 0 else 0
     
     p_emo_cau = micro_precision

@@ -556,6 +556,7 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     pred_num_acc_list_all = [0, 0, 0, 0, 0, 0]
     pred_num_precision_denominator_dict = [0, 0, 0, 0, 0, 0]
     pred_num_recall_denominator_dict = [0, 0, 0, 0, 0, 0]
+    support_ratio = [0, 0, 0, 0, 0, 0]
     
     for i in idx_list:
         pred_num_acc_list[i] = confusion_pred[i][i]
@@ -563,6 +564,8 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
         pred_num_precision_denominator_dict[i] = sum(confusion_pred[:,i])
         pred_num_recall_denominator_dict[i] = sum(confusion_all[i,:])
     
+    for i in range(len(support_ratio)):
+        support_ratio[i] = pred_num_recall_denominator_dict[i]/sum(pred_num_recall_denominator_dict)
     '''# Confusion matrix 시각화
     print('\t', end="")
     for label in label_:
@@ -581,14 +584,26 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     - 구한 각 클래스의 precision, recall을 평균내어 전체 precision, recall 구한다 (macro average)
     - 전체 precision, recall을 통해 Pair-Emotion F1 구한다.
     '''
-    p_emo_cau = 0; r_emo_cau = 0
-    for num_acc, prec_denom in zip(pred_num_acc_list, pred_num_precision_denominator_dict):
-        p_emo_cau += num_acc / prec_denom if prec_denom != 0 else 0
-    for num_acc_all, rec_denom in zip(pred_num_acc_list_all, pred_num_recall_denominator_dict):
-        r_emo_cau += num_acc_all / rec_denom if rec_denom != 0 else 0
-    p_emo_cau /= len(idx_list)
-    r_emo_cau /= len(idx_list)
-    f1_emo_cau = 2 * p_emo_cau * r_emo_cau / (p_emo_cau + r_emo_cau) if p_emo_cau + r_emo_cau != 0 else 0
+    p_emo_cau_list = [0,0,0,0,0,0]; r_emo_cau_list = [0,0,0,0,0,0]; f1_emo_cau_list = [0,0,0,0,0,0]
+    for i, num_acc, prec_denom, ratio in zip(range(len(p_emo_cau_list)), pred_num_acc_list, pred_num_precision_denominator_dict, support_ratio):
+        p_emo_cau_list[i] = (num_acc / prec_denom) if prec_denom != 0 else 0
+    for i, num_acc_all, rec_denom, ratio in zip(range(len(r_emo_cau_list)), pred_num_acc_list_all, pred_num_recall_denominator_dict, support_ratio):
+        r_emo_cau_list[i] = (num_acc_all / rec_denom) if rec_denom != 0 else 0
+    
+    for p_, r_, i in zip(p_emo_cau_list, r_emo_cau_list, range(len(f1_emo_cau_list))):
+        f1_emo_cau_list[i] = 2 * p_ * r_ / (p_ + r_) if p_ + r_ != 0 else 0
+    
+    p_emo_cau = 0
+    r_emo_cau = 0
+    f1_emo_cau = 0
+    for ratio, p_, r_, f1_ in zip(support_ratio, p_emo_cau_list, r_emo_cau_list, f1_emo_cau_list):
+        p_emo_cau += ratio * p_
+        r_emo_cau += ratio * r_
+        f1_emo_cau += ratio * f1_
+    
+    # p_emo_cau /= len(idx_list)
+    # r_emo_cau /= len(idx_list)
+    # f1_emo_cau = 2 * p_emo_cau * r_emo_cau / (p_emo_cau + r_emo_cau) if p_emo_cau + r_emo_cau != 0 else 0
     
     return emo_report_str, emo_metrics, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau
 

@@ -22,12 +22,6 @@ if __name__ == "__main__":
     ]
     data_label = [*[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)], '-original_data_DailyDialog']
     
-    # Mini Dataset (1 fold)
-    train_data_list = ['data/data_mini/dailydialog_train.json']
-    valid_data_list = ['data/data_mini/dailydialog_valid.json']
-    test_data_list = ['data/data_mini/dailydialog_test.json']
-    data_label = ['-original_mini']
-    
     lr = [5e-5]
     batch_sizes = [5]
     gpus = [0]
@@ -45,7 +39,7 @@ if __name__ == "__main__":
     epoch = 20
     ckpt_type_list = ['joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
     model_save_path = "/hdd/hjl8708/0429-pair-emotion-lightning"
-    multiclass_avg_type = 'macro'
+    multiclass_avg_type = 'weighted'
     
     if mode == 'train':
         for ckpt_type in ckpt_type_list:
@@ -69,7 +63,7 @@ if __name__ == "__main__":
                                 runner.set_value('log_directory', 'logs')
                                 encoder_name_for_filename = encoder_name.replace('/', '-')
                                 # runner.set_value('log_folder_name', f'Encoder_loss_lambda{loss_lambda}-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')
-                                runner.set_value('log_folder_name', f'{encoder_label}-Epoch{epoch}: for BEST {ckpt_type}(macro), losslambda{loss_lambda}, UseNewFC-{use_newfc}_{dl}')
+                                runner.set_value('log_folder_name', f'{encoder_label}-Epoch{epoch}: for BEST {ckpt_type}({multiclass_avg_type}), losslambda{loss_lambda}, UseNewFC-{use_newfc}_{dl}')
                                 runner.run()
                                 
                                 del runner

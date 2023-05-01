@@ -24,27 +24,28 @@ if __name__ == "__main__":
     
     lr = [5e-5]
     batch_sizes = [5]
-    gpus = [1]
-    loss_lambda_list = [0.2, 0.4, 0.6]
+    gpus = [0]
+    loss_lambda_list = [0.2, 0.4, 0.6, 0.8]
     accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
     # cause_encoder_name_list = ['roberta-base']
     
         # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
         # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
-    encoder_name_list = ['j-hartmann/emotion-english-distilroberta-base', 'distilroberta-base']#['distilroberta-base', 'j-hartmann/emotion-english-distilroberta-base']
-    encoder_label_list = ['J-hartmann-distilroberta-base', 'Distilroberta-base']#['Distilroberta-base', 'J-hartmann-distilroberta-base']
+    encoder_name_list = ['bert-base-cased']#['distilroberta-base', 'j-hartmann/emotion-english-distilroberta-base']
+    encoder_label_list = ['PRG-MoE(BERT)']#['Distilroberta-base', 'J-hartmann-distilroberta-base']
     mode = 'train'
     use_newfc = False
-    epoch = 20
+    epoch = 15
     ckpt_type_list = ['joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
-    model_save_path = "/hdd/hjl8708/0429-pair-emotion-lightning"
+    model_save_path = "/hdd/hjl8708/0501-micro_f1-pair-emotion-lightning"
     multiclass_avg_type = 'micro'
+    window_size = 5
     
     if mode == 'train':
         for ckpt_type in ckpt_type_list:
-            for encoder_name, encoder_label in zip(encoder_name_list, encoder_label_list):
-                for loss_lambda in loss_lambda_list:
+            for loss_lambda in loss_lambda_list:
+                for encoder_name, encoder_label in zip(encoder_name_list, encoder_label_list):
                     for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, data_label):
                         for lr_ in lr:
                             for batch_size in batch_sizes:
@@ -61,9 +62,10 @@ if __name__ == "__main__":
                                 runner.set_value('use_newfc', use_newfc)
                                 runner.set_value('multiclass_avg_type', multiclass_avg_type)
                                 runner.set_value('log_directory', 'logs')
+                                runner.set_value('window_size', window_size)
                                 encoder_name_for_filename = encoder_name.replace('/', '-')
                                 # runner.set_value('log_folder_name', f'Encoder_loss_lambda{loss_lambda}-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')
-                                runner.set_value('log_folder_name', f'{encoder_label}-Epoch{epoch}: for BEST {ckpt_type}({multiclass_avg_type}), losslambda{loss_lambda}, UseNewFC-{use_newfc}_{dl}')
+                                runner.set_value('log_folder_name', f'{encoder_label}-Epoch{epoch}: for BEST {ckpt_type}({multiclass_avg_type}), window{window_size} losslambda{loss_lambda}, UseNewFC-{use_newfc}_{dl}')
                                 runner.run()
                                 
                                 del runner

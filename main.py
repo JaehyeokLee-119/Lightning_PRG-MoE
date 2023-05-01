@@ -72,6 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--encoder_separation', help='Use encoder separation or not', default=False, type=bool)
     parser.add_argument('--emotion_epoch_ratio', default=0.5, type=float)
     parser.add_argument('--accumulate_grad_batches', default=2, type=int)
+    parser.add_argument('--window_size', default=3, type=int)
     
     parser.add_argument('--n_speaker', help='the number of speakers', default=2, type=int)
     parser.add_argument('--n_emotion', help='the number of emotions', default=7, type=int)

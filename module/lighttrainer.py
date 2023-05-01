@@ -35,7 +35,7 @@ class LitPRGMoE(pl.LightningModule):
         self.training_iter = kwargs['training_iter']
         self.dropout = kwargs['dropout']
         self.learning_rate = kwargs['learning_rate']
-        self.window_size = 3
+        self.window_size = kwargs['window_size']
         self.n_expert = 4
         self.n_emotion = 7
         self.guiding_lambda = kwargs['guiding_lambda']
@@ -544,13 +544,6 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
         
     f1_cau = 2 * p_cau * r_cau / (p_cau + r_cau) if p_cau + r_cau != 0 else 0
     
-    # <<[[ Emotion-cause 부분 ]]>>
-    # emo_cause_pred_y_list, emo_cause_true_y_list, emo_cause_pred_y_list_all, emo_cause_true_y_list_all,  
-    
-    # print('emo_cause_list: \n', confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu')), '\n')
-    # print('emo_cause_list_all: \n', confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu')), '\n')
-    # (0,10,20,30,40,50,60)+(0,1)
-    
     # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
     label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
     confusion_pred = confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), labels=label_)
@@ -562,7 +555,6 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     pred_num_acc_list_all = [0, 0, 0, 0, 0, 0]
     pred_num_precision_denominator_dict = [0, 0, 0, 0, 0, 0]
     pred_num_recall_denominator_dict = [0, 0, 0, 0, 0, 0]
-    support_ratio = [0, 0, 0, 0, 0, 0]
     
     for i in idx_list:
         pred_num_acc_list[i] = confusion_pred[i][i]
@@ -570,8 +562,10 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
         pred_num_precision_denominator_dict[i] = sum(confusion_pred[:,i])
         pred_num_recall_denominator_dict[i] = sum(confusion_all[i,:])
     
-    for i in range(len(support_ratio)):
-        support_ratio[i] = pred_num_recall_denominator_dict[i]/sum(pred_num_recall_denominator_dict)
+    # support_ratio = [0, 0, 0, 0, 0, 0]
+    # for i in range(len(support_ratio)):
+    #     support_ratio[i] = pred_num_recall_denominator_dict[i]/sum(pred_num_recall_denominator_dict)
+        
     '''# Confusion matrix 시각화
     print('\t', end="")
     for label in label_:
@@ -592,7 +586,7 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     '''
     # 불균형이 심하므로 micro
     micro_precision = sum(pred_num_acc_list) / sum(pred_num_precision_denominator_dict)
-    micro_recall = sum(pred_num_acc_list_all) / sum(pred_num_recall_denominator_dict)
+    micro_recall = sum(pred_num_acc_list) / sum(pred_num_recall_denominator_dict)
     micro_f1 = 2 * micro_precision * micro_recall / (micro_precision + micro_recall) if micro_precision + micro_recall != 0 else 0
     
     p_emo_cau = micro_precision

@@ -249,8 +249,10 @@ class LitPRGMoE(pl.LightningModule):
         self.cau_pred_y_list_all[types].append(pair_binary_cause_prediction_all), self.cau_true_y_list_all[types].append(pair_binary_cause_label_batch_all)
         self.cau_pred_y_list[types].append(pair_binary_cause_prediction_window), self.cau_true_y_list[types].append(pair_binary_cause_label_batch_window)
         self.emo_pred_y_list[types].append(emotion_prediction_filtered), self.emo_true_y_list[types].append(emotion_label_batch_filtered)
-        self.emo_cause_pred_y_list[types].append(pair_emotion_cause_prediction_all), self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_all)
-        self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_window), self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_window)
+        self.emo_cause_pred_y_list[types].append(pair_emotion_cause_prediction_window)
+        self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_window)
+        self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_all)
+        self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_all)
         
         # Loss Calculation
         loss = self.loss_calculation(emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
@@ -281,8 +283,10 @@ class LitPRGMoE(pl.LightningModule):
         self.cau_pred_y_list_all[types].append(pair_binary_cause_prediction_all), self.cau_true_y_list_all[types].append(pair_binary_cause_label_batch_all)
         self.cau_pred_y_list[types].append(pair_binary_cause_prediction_window), self.cau_true_y_list[types].append(pair_binary_cause_label_batch_window)
         self.emo_pred_y_list[types].append(emotion_prediction_filtered), self.emo_true_y_list[types].append(emotion_label_batch_filtered)
-        self.emo_cause_pred_y_list[types].append(pair_emotion_cause_prediction_all), self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_all)
-        self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_window), self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_window)
+        self.emo_cause_pred_y_list[types].append(pair_emotion_cause_prediction_window)
+        self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_window)
+        self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_all)
+        self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_all)
         
         self.loss_sum[types] += loss.item()
         self.batch_count[types] += 1
@@ -308,8 +312,10 @@ class LitPRGMoE(pl.LightningModule):
         self.cau_pred_y_list_all[types].append(pair_binary_cause_prediction_all), self.cau_true_y_list_all[types].append(pair_binary_cause_label_batch_all)
         self.cau_pred_y_list[types].append(pair_binary_cause_prediction_window), self.cau_true_y_list[types].append(pair_binary_cause_label_batch_window)
         self.emo_pred_y_list[types].append(emotion_prediction_filtered), self.emo_true_y_list[types].append(emotion_label_batch_filtered)
-        self.emo_cause_pred_y_list[types].append(pair_emotion_cause_prediction_all), self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_all)
-        self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_window), self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_window)
+        self.emo_cause_pred_y_list[types].append(pair_emotion_cause_prediction_window)
+        self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_window)
+        self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_all)
+        self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_all)
         
         self.loss_sum[types] += loss.item()
         self.batch_count[types] += 1
@@ -584,22 +590,14 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     - 구한 각 클래스의 precision, recall을 평균내어 전체 precision, recall 구한다 (macro average)
     - 전체 precision, recall을 통해 Pair-Emotion F1 구한다.
     '''
-    p_emo_cau_list = [0,0,0,0,0,0]; r_emo_cau_list = [0,0,0,0,0,0]; f1_emo_cau_list = [0,0,0,0,0,0]
-    for i, num_acc, prec_denom, ratio in zip(range(len(p_emo_cau_list)), pred_num_acc_list, pred_num_precision_denominator_dict, support_ratio):
-        p_emo_cau_list[i] = (num_acc / prec_denom) if prec_denom != 0 else 0
-    for i, num_acc_all, rec_denom, ratio in zip(range(len(r_emo_cau_list)), pred_num_acc_list_all, pred_num_recall_denominator_dict, support_ratio):
-        r_emo_cau_list[i] = (num_acc_all / rec_denom) if rec_denom != 0 else 0
+    # 불균형이 심하므로 micro
+    micro_precision = sum(pred_num_acc_list) / sum(pred_num_precision_denominator_dict)
+    micro_recall = sum(pred_num_acc_list_all) / sum(pred_num_recall_denominator_dict)
+    micro_f1 = 2 * micro_precision * micro_recall / (micro_precision + micro_recall) if micro_precision + micro_recall != 0 else 0
     
-    for p_, r_, i in zip(p_emo_cau_list, r_emo_cau_list, range(len(f1_emo_cau_list))):
-        f1_emo_cau_list[i] = 2 * p_ * r_ / (p_ + r_) if p_ + r_ != 0 else 0
-    
-    p_emo_cau = 0
-    r_emo_cau = 0
-    f1_emo_cau = 0
-    for ratio, p_, r_, f1_ in zip(support_ratio, p_emo_cau_list, r_emo_cau_list, f1_emo_cau_list):
-        p_emo_cau += ratio * p_
-        r_emo_cau += ratio * r_
-        f1_emo_cau += ratio * f1_
+    p_emo_cau = micro_precision
+    r_emo_cau = micro_recall
+    f1_emo_cau = micro_f1
     
     # p_emo_cau /= len(idx_list)
     # r_emo_cau /= len(idx_list)

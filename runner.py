@@ -24,7 +24,7 @@ if __name__ == "__main__":
     
     lr = [5e-5]
     batch_sizes = [5]
-    gpus = [0]
+    gpus = [1]
     loss_lambda_list = [0.2, 0.4, 0.6]
     accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
@@ -32,14 +32,14 @@ if __name__ == "__main__":
     
         # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
         # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
-    encoder_name_list = ['bert-base-cased']#['distilroberta-base', 'j-hartmann/emotion-english-distilroberta-base']
-    encoder_label_list = ['Bert']#['Distilroberta-base', 'J-hartmann-distilroberta-base']
+    encoder_name_list = ['j-hartmann/emotion-english-distilroberta-base', 'distilroberta-base']#['distilroberta-base', 'j-hartmann/emotion-english-distilroberta-base']
+    encoder_label_list = ['J-hartmann-distilroberta-base', 'Distilroberta-base']#['Distilroberta-base', 'J-hartmann-distilroberta-base']
     mode = 'train'
     use_newfc = False
     epoch = 20
     ckpt_type_list = ['joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
     model_save_path = "/hdd/hjl8708/0429-pair-emotion-lightning"
-    multiclass_avg_type = 'weighted'
+    multiclass_avg_type = 'micro'
     
     if mode == 'train':
         for ckpt_type in ckpt_type_list:

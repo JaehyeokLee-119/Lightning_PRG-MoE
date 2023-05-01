@@ -9,33 +9,39 @@ if __name__ == "__main__":
 
     # Entire data (folds 먼저)
     train_data_list = [
-        * [f'data/data_fold/data_{fold_}/data_{fold_}_train.json' for fold_ in range(2, 5)],
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_train.json' for fold_ in range(1, 5)],
         'data/data_fold/data_0/dailydialog_train.json',
     ]
     valid_data_list = [
-        * [f'data/data_fold/data_{fold_}/data_{fold_}_valid.json' for fold_ in range(2, 5)],
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_valid.json' for fold_ in range(1, 5)],
         'data/data_fold/data_0/dailydialog_valid.json',
     ]
     test_data_list = [
-        * [f'data/data_fold/data_{fold_}/data_{fold_}_test.json' for fold_ in range(2, 5)],
+        * [f'data/data_fold/data_{fold_}/data_{fold_}_test.json' for fold_ in range(1, 5)],
         'data/data_fold/data_0/dailydialog_test.json',
     ]
-    data_label = [*[f'-data_{fold_}_DailyDialog' for fold_ in range(2, 5)], '-original_data_DailyDialog']
-
+    data_label = [*[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)], '-original_data_DailyDialog']
+    
+    # Mini Dataset (1 fold)
+    train_data_list = ['data/data_mini/dailydialog_train.json']
+    valid_data_list = ['data/data_mini/dailydialog_valid.json']
+    test_data_list = ['data/data_mini/dailydialog_test.json']
+    data_label = ['-original_mini']
+    
     lr = [5e-5]
     batch_sizes = [5]
-    gpus = [1]
-    loss_lambda_list = [0.8]
+    gpus = [0]
+    loss_lambda_list = [0.2, 0.4, 0.6]
     accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
     # cause_encoder_name_list = ['roberta-base']
     
         # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
         # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
-    encoder_name_list = ['j-hartmann/emotion-english-distilroberta-base']#['distilroberta-base', 'j-hartmann/emotion-english-distilroberta-base']
-    encoder_label_list = ['J-hartmann-distilroberta-base+FC']#['Distilroberta-base', 'J-hartmann-distilroberta-base']
+    encoder_name_list = ['bert-base-cased']#['distilroberta-base', 'j-hartmann/emotion-english-distilroberta-base']
+    encoder_label_list = ['Bert']#['Distilroberta-base', 'J-hartmann-distilroberta-base']
     mode = 'train'
-    use_newfc = True
+    use_newfc = False
     epoch = 20
     ckpt_type_list = ['joint-f1'] # 'cause-f1', 'emotion-f1', 'joint-f1'
     model_save_path = "/hdd/hjl8708/0429-pair-emotion-lightning"

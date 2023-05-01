@@ -560,8 +560,8 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     for i in idx_list:
         pred_num_acc_list[i] = confusion_pred[i][i]
         pred_num_acc_list_all[i] = confusion_all[i][i]
-        pred_num_precision_denominator_dict[i] = sum(confusion_pred[i,:])
-        pred_num_recall_denominator_dict[i] = sum(confusion_all[:,i])
+        pred_num_precision_denominator_dict[i] = sum(confusion_pred[:,i])
+        pred_num_recall_denominator_dict[i] = sum(confusion_all[i,:])
     
     '''# Confusion matrix 시각화
     print('\t', end="")

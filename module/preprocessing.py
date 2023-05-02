@@ -289,7 +289,7 @@ def get_pair_pad_idx(utterance_input_ids_batch, encoder_name, window_constraint=
                 continue
             
             # non-neutral인 경우, window_constraint만큼의 window를 만들어서 1로 채운다
-            pair_window_idx[max(0, int(end_t * (end_t + 1) / 2) - window_constraint):int(end_t * (end_t + 1) / 2)] = 1 
+            pair_window_idx[max(0, int((end_t-1)*end_t/2), int(end_t * (end_t + 1) / 2) - window_constraint):int(end_t * (end_t + 1) / 2)] = 1 
             
         check_pair_window_idx.append(pair_window_idx)
     

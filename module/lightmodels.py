@@ -21,10 +21,11 @@ class TotalModel_cause_fc(pl.LightningModule):
         
         # Model
         self.model = AutoModelForSequenceClassification.from_pretrained(encoder_name, output_hidden_states=True, num_labels=n_emotion)
-        for name, param in self.model.named_parameters():
-            for i in range(int(self.model.config.num_hidden_layers * freeze_ratio)):
-                if str(i) in name:
-                    param.requires_grad = False
+        if freeze_ratio > 0:
+            for name, param in self.model.named_parameters():
+                for i in range(int(self.model.config.num_hidden_layers * freeze_ratio)):
+                    if str(i) in name:
+                        param.requires_grad = False
             
         
         pair_embedding_size = 2 * (self.model.config.hidden_size + n_emotion + 1)
@@ -140,10 +141,11 @@ class TotalModel(pl.LightningModule):
         self.model = AutoModelForSequenceClassification.from_pretrained(encoder_name, output_hidden_states=True, num_labels=n_emotion)
         
         # Model freeze
-        for name, param in self.model.named_parameters():
-            for i in range(int(self.model.config.num_hidden_layers * freeze_ratio)):
-                if str(i) in name:
-                    param.requires_grad = False
+        if freeze_ratio > 0:
+            for name, param in self.model.named_parameters():
+                for i in range(int(self.model.config.num_hidden_layers * freeze_ratio)):
+                    if str(i) in name:
+                        param.requires_grad = False
                     
         pair_embedding_size = 2 * (self.model.config.hidden_size + n_emotion + 1)
         

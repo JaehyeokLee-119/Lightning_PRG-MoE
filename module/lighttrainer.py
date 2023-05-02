@@ -23,13 +23,14 @@ class LitPRGMoE(pl.LightningModule):
         self.use_original = kwargs['use_original']
         self.use_newfc = kwargs['use_newfc']
         
+        self.freeze_ratio = kwargs['freeze_ratio']
         if self.use_original:
             self.model = OriginalPRG_MoE() # output: (emotion prediction, cause prediction)
         else:
             if self.use_newfc:
-                self.model = TotalModel_cause_fc(self.encoder_name) # output: (emotion prediction, cause prediction)
+                self.model = TotalModel_cause_fc(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
             else:
-                self.model = TotalModel(self.encoder_name) # output: (emotion prediction, cause prediction)
+                self.model = TotalModel(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
 
         # 하이퍼파라미터 설정
         self.training_iter = kwargs['training_iter']

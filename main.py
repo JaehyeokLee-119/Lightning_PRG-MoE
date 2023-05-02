@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--data_label', help='the label that attaches to saved model', default='dailydialog_fold_0')
     parser.add_argument('--multiclass_avg_type', default='macro', type=str)
 
-
+    parser.add_argument('--freeze_ratio', help='the ratio of frozen layers', default=0.0, type=float)
     parser.add_argument('--only_emotion', help='only emotion classification', default=False, type=bool)
     parser.add_argument('--only_cause', help='only cause classification', default=False, type=bool)
     parser.add_argument('--emo_model_path', help='the path of emotion model', default=None)

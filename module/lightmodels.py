@@ -12,7 +12,7 @@ from transformers import AutoModel, AutoModelForSequenceClassification, BertMode
 import numpy as np
 
 class TotalModel_cause_fc(pl.LightningModule):
-    def __init__(self, encoder_name, guiding_lambda=0.6, n_emotion=7, n_expert=4, n_cause=2, dropout=0.5):
+    def __init__(self, encoder_name, freeze_ratio=0.0, guiding_lambda=0.6, n_emotion=7, n_expert=4, n_cause=2, dropout=0.5):
         super().__init__()
         self.guiding_lambda = guiding_lambda
         self.n_expert = n_expert
@@ -21,6 +21,11 @@ class TotalModel_cause_fc(pl.LightningModule):
         
         # Model
         self.model = AutoModelForSequenceClassification.from_pretrained(encoder_name, output_hidden_states=True, num_labels=n_emotion)
+        for name, param in self.model.named_parameters():
+            for i in range(int(self.model.config.num_hidden_layers * freeze_ratio)):
+                if str(i) in name:
+                    param.requires_grad = False
+            
         
         pair_embedding_size = 2 * (self.model.config.hidden_size + n_emotion + 1)
         
@@ -124,7 +129,7 @@ class TotalModel_cause_fc(pl.LightningModule):
         return pair_info
 
 class TotalModel(pl.LightningModule):
-    def __init__(self, encoder_name, guiding_lambda=0.6, n_emotion=7, n_expert=4, n_cause=2, dropout=0.5):
+    def __init__(self, encoder_name, freeze_ratio=0.0, guiding_lambda=0.6, n_emotion=7, n_expert=4, n_cause=2, dropout=0.5):
         super().__init__()
         self.guiding_lambda = guiding_lambda
         self.n_expert = n_expert
@@ -134,6 +139,12 @@ class TotalModel(pl.LightningModule):
         # Model
         self.model = AutoModelForSequenceClassification.from_pretrained(encoder_name, output_hidden_states=True, num_labels=n_emotion)
         
+        # Model freeze
+        for name, param in self.model.named_parameters():
+            for i in range(int(self.model.config.num_hidden_layers * freeze_ratio)):
+                if str(i) in name:
+                    param.requires_grad = False
+                    
         pair_embedding_size = 2 * (self.model.config.hidden_size + n_emotion + 1)
         
         self.gating_network = nn.Linear(pair_embedding_size, n_expert)

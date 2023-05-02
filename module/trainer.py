@@ -34,6 +34,7 @@ class LearningEnv:
         self.valid_dataset = kwargs['valid_data']
         self.test_dataset = kwargs['test_data']
         self.data_label = kwargs['data_label']
+        self.freeze_ratio = kwargs['freeze_ratio']
         
         self.loss_lambda = kwargs['loss_lambda'] # loss 중 Emotion loss의 비율
         self.multiclass_avg_type = kwargs['multiclass_avg_type']
@@ -98,6 +99,7 @@ class LearningEnv:
             "ckpt_type": self.ckpt_type,
             "multiclass_avg_type": self.multiclass_avg_type,
             "window_size": self.window_size,
+            "freeze_ratio": self.freeze_ratio,
         }
 
     def set_model(self):        

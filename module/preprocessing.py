@@ -282,15 +282,25 @@ def get_pair_pad_idx(utterance_input_ids_batch, encoder_name, window_constraint=
         emotion_pred = torch.argmax(emotion_pred, dim=1) # 7차원 분류결과([140, 7])를 1차원으로 줄임(가장 큰 값의 index로, [140])
         
     check_pair_window_idx = list()
-    for batch in check_pad_idx.view(-1, max_doc_len): # check_pad_idx [140] -> [5,28]해서, batch=[28]
-        pair_window_idx = torch.zeros(int(max_doc_len * (max_doc_len + 1) / 2)) # pair window를 넣을 공간을 만든다 (28*29/2=406)
-        for end_t in range(1, len(batch.nonzero()) + 1): # 각 dialog속의 '진짜 문장 길이'만큼 반복
-            if emotion_pred is not None and emotion_pred[end_t - 1] == 6: # emotion이 6(중립)인 경우는 제외
-                continue
-            
-            # non-neutral인 경우, window_constraint만큼의 window를 만들어서 1로 채운다
-            pair_window_idx[max(0, int((end_t-1)*end_t/2), int(end_t * (end_t + 1) / 2) - window_constraint):int(end_t * (end_t + 1) / 2)] = 1 
-            
-        check_pair_window_idx.append(pair_window_idx)
     
+    if (emotion_pred is not None):
+        for batch, emo_pred in zip(check_pad_idx.view(-1, max_doc_len), emotion_pred.view(batch_size,-1)): # check_pad_idx [140] -> [5,28]해서, batch=[28]
+            pair_window_idx = torch.zeros(int(max_doc_len * (max_doc_len + 1) / 2)) # pair window를 넣을 공간을 만든다 (28*29/2=406)
+            for end_t in range(1, len(batch.nonzero()) + 1): # 각 dialog속의 '진짜 문장 길이'만큼 반복
+                if emotion_pred is not None and emo_pred[end_t - 1] == 6: # emotion이 6(중립)인 경우는 제외
+                    continue
+                
+                # non-neutral인 경우, window_constraint만큼의 window를 만들어서 1로 채운다
+                pair_window_idx[max(0, int((end_t-1)*end_t/2), int(end_t * (end_t + 1) / 2) - window_constraint):int(end_t * (end_t + 1) / 2)] = 1 
+                
+            check_pair_window_idx.append(pair_window_idx)
+    else:
+        for batch in check_pad_idx.view(-1, max_doc_len): # check_pad_idx [140] -> [5,28]해서, batch=[28]
+            pair_window_idx = torch.zeros(int(max_doc_len * (max_doc_len + 1) / 2)) # pair window를 넣을 공간을 만든다 (28*29/2=406)
+            for end_t in range(1, len(batch.nonzero()) + 1): # 각 dialog속의 '진짜 문장 길이'만큼 반복
+                # non-neutral인 경우, window_constraint만큼의 window를 만들어서 1로 채운다
+                pair_window_idx[max(0, int((end_t-1)*end_t/2), int(end_t * (end_t + 1) / 2) - window_constraint):int(end_t * (end_t + 1) / 2)] = 1 
+                
+            check_pair_window_idx.append(pair_window_idx)
+            
     return torch.stack(check_pair_window_idx)

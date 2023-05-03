@@ -128,6 +128,10 @@ class LearningEnv:
         # 모델 저장할 폴더 생성
         if not os.path.exists(self.model_save_path):
             os.makedirs(self.model_save_path)
+        if not os.path.exists(self.model_save_path+'/cause-f1'):
+            os.makedirs(self.model_save_path+'/cause-f1')
+        if not os.path.exists(self.model_save_path+'/joint-f1'):
+            os.makedirs(self.model_save_path+'/joint-f1')
         
         # 모델 인스턴스를 셋팅
         self.set_model()
@@ -151,19 +155,26 @@ class LearningEnv:
         elif self.ckpt_type == 'joint-f1':
             monitor_val = "emo-cau 3.f1-score"
             
-        checkpoint_callback = ModelCheckpoint(
-            dirpath=self.model_save_path, 
-            save_top_k=1, 
-            monitor=monitor_val,
+        on_best_cause_f1 = ModelCheckpoint(
+            dirpath=self.model_save_path+'/cause-f1',
+            monitor="binary_cause 5.f1-score",
+            save_top_k=1,
             mode="max",
-            filename=ckpt_filename)
+            filename=ckpt_filename+'cause-f1')
+        
+        on_best_joint_f1 = ModelCheckpoint(
+            dirpath=self.model_save_path+'/joint-f1',
+            save_top_k=1, 
+            monitor="emo-cau 3.f1-score",
+            mode="max",
+            filename=ckpt_filename+'joint-f1')
         
         trainer_config = {
             "max_epochs": epoch,
             "strategy": 'ddp_find_unused_parameters_true',
             "check_val_every_n_epoch": 1,
             "accumulate_grad_batches": self.accumulate_grad_batches,
-            "callbacks": [checkpoint_callback],
+            "callbacks": [on_best_cause_f1, on_best_joint_f1],
         }
         trainer = L.Trainer(**trainer_config)
         trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)

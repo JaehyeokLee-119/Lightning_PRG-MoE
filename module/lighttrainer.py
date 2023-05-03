@@ -133,18 +133,6 @@ class LitPRGMoE(pl.LightningModule):
         
         # Forward
         emotion_prediction, cause_prediction = self.model(input_ids, attention_mask, token_type_ids, speaker_ids, max_seq_len)
-            # batch_size, max_doc_len, max_seq_len = [5, 28, 75] 인 경우,
-            # emotion_prediction, cause_prediction =  [140, 7], [2030, 2](5*(28*29/2)=5*406)
-                # batch(dialog) 당 406개의 pair가 생성됨( 28개의 utterance들을 각각 그 이전 발화 전부들과 pairing )
-            
-        
-        # if self.test:
-        #     # emotion 예측값을 기준으로, 각 대화 속에 있는 Non-neutral인 발화에 대해 w개의 발화를 후보로 선정
-        #     check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction)
-            
-        #     # Emotion 예측과 관계없이, 발화의 쌍이 될 수 있는 모든 경우에 대해 index를 1로 설정한 check_idx
-        #     check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
-        #     self.joint_accuracy_step(emotion_prediction, emotion_label_batch, cause_prediction, pair_binary_cause_label_batch, check_pair_pad_idx, check_pair_window_idx, batch_size, self.n_cause)
         
         return (emotion_prediction, cause_prediction)
     

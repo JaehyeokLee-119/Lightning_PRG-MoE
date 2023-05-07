@@ -50,7 +50,6 @@ def parse_args() -> argparse.Namespace:
     
     # Encoder Model Setting
     parser.add_argument('--encoder_name', help='the name of encoder', default='roberta-base')
-    parser.add_argument('--unfreeze', help='the number of layers to be unfrozen', default=0, type=int) # 0 == unfreeze all layers
     parser.add_argument('--max_seq_len', help='the max length of each tokenized utterance', default=75, type=int)
     parser.add_argument('--contain_context', help='While tokenizing, previous utterances are contained or not', default=False)
     parser.add_argument('--loss_lambda', help='Ratio of emotion loss in the total loss', default=0.2)
@@ -69,8 +68,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--learning_rate', default=2e-5, type=float)
     parser.add_argument('--patience', help='patience for Early Stopping', default=None, type=int)
-    parser.add_argument('--encoder_separation', help='Use encoder separation or not', default=False, type=bool)
-    parser.add_argument('--emotion_epoch_ratio', default=0.5, type=float)
     parser.add_argument('--accumulate_grad_batches', default=2, type=int)
     parser.add_argument('--window_size', default=3, type=int)
     
@@ -108,7 +105,7 @@ class Main:
             self.args.gpus = [int(_) for _ in self.args.gpus]
             
         encoder_name = self.args.encoder_name.replace('/', '_')  
-        self.args.wandb_pjname = f'ECPE_{encoder_name}_lr{self.args.learning_rate}_Unfreze{self.args.unfreeze}_{self.args.data_label}'
+        self.args.wandb_pjname = f'Gpu{self.args.gpus[0]}_{self.args.wandb_project_name}_{encoder_name}'
         
         # 실행
         trainer = LearningEnv(**vars(self.args))

@@ -42,10 +42,7 @@ class LitPRGMoE(pl.LightningModule):
         self.guiding_lambda = kwargs['guiding_lambda']
         self.loss_lambda = kwargs['loss_lambda'] # loss 중 Emotion loss의 비율
         # 학습 방법 설정
-        self.num_unfreeze = kwargs['unfreeze']
-        self.only_emotion = False
         self.n_cause = kwargs['n_cause']
-        self.emotion_epoch_ratio = kwargs['emotion_epoch_ratio'] # 이 비율만큼 추가적으로 먼저 감정만 학습
         self.ckpt_type = kwargs['ckpt_type']
         self.multiclass_avg_type = kwargs['multiclass_avg_type']
         
@@ -59,9 +56,6 @@ class LitPRGMoE(pl.LightningModule):
         else:
             self.is_bert_like = False
                         
-        self.emotion_epoch = int(self.training_iter * self.emotion_epoch_ratio)
-        self.training_iter = self.training_iter + self.emotion_epoch
-        
         # Dictionaries for logging
         types = ['train', 'valid', 'test']
         self.emo_pred_y_list = {}
@@ -450,8 +444,9 @@ class LitPRGMoE(pl.LightningModule):
                 confusion_log+=f'{label}\t'
                 for col in row:
                     confusion_log+=f'{col}\t'
-                confusion_log+="\n"
+                confusion_log+="\n\n"
             logger.info(confusion_log)
+            # logger.info(confusion_log)
             
         
     def get_pair_embedding(self, pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids):

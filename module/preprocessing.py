@@ -159,6 +159,8 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
         else:
             return context
         
+        # ver2
+         
         return context
     
     f = open(data_file)

@@ -22,7 +22,6 @@ class LearningEnv:
         self.num_worker = kwargs['num_worker']
         # if self.use_wandb:
         #     wandb.init(project=self.wandb_project_name)
-        self.only_emotion = kwargs['only_emotion']
         self.emo_model_path = kwargs['emo_model_path']
         self.model_save_path = kwargs['model_save_path']
         
@@ -40,7 +39,6 @@ class LearningEnv:
         self.multiclass_avg_type = kwargs['multiclass_avg_type']
         self.window_size = kwargs['window_size']
         
-        self.max_seq_len = kwargs['max_seq_len']
         self.start_time = datetime.datetime.now()
         self.training_iter = kwargs['training_iter']
         
@@ -48,6 +46,9 @@ class LearningEnv:
         self.use_newfc = kwargs['use_newfc']
         self.model_name = kwargs['model_name']
         self.port = kwargs['port']
+        
+        self.contain_context = kwargs['contain_context']
+        self.max_seq_len = kwargs['max_seq_len']
         
         self.ckpt_type = kwargs['ckpt_type']
         
@@ -59,12 +60,9 @@ class LearningEnv:
         self.n_emotion = kwargs['n_emotion']
         self.n_expert = kwargs['n_expert']
         self.learning_rate = kwargs['learning_rate']
-        self.unfreeze = kwargs['unfreeze']
         self.batch_size = kwargs['batch_size']
         self.guiding_lambda = kwargs['guiding_lambda']
-        self.contain_context = kwargs['contain_context']
         self.encoder_name = kwargs['encoder_name']
-        self.emotion_epoch_ratio = kwargs['emotion_epoch_ratio']
         
         # learning variables
         self.best_performance = [0, 0, 0]  # p, r, f1
@@ -89,17 +87,16 @@ class LearningEnv:
             "guiding_lambda": self.guiding_lambda,
             "learning_rate": self.learning_rate,
             "loss_lambda": self.loss_lambda,
-            "unfreeze": self.unfreeze,
-            "only_emotion": self.only_emotion,
             "training_iter": self.training_iter,
             "encoder_name": self.encoder_name,
-            "emotion_epoch_ratio": self.emotion_epoch_ratio,
             "use_original": self.use_original,
             "use_newfc": self.use_newfc,
             "ckpt_type": self.ckpt_type,
             "multiclass_avg_type": self.multiclass_avg_type,
             "window_size": self.window_size,
             "freeze_ratio": self.freeze_ratio,
+            "contain_context": self.contain_context,
+            "max_seq_len": self.max_seq_len,
         }
 
     def set_model(self):        
@@ -121,7 +118,7 @@ class LearningEnv:
     def pre_setting(self):
         # 로거 설정
         logger_name_list = ['train', 'valid', 'test']
-        file_name_list = [f'{self.encoder_name_for_filename}-{self.data_label}-lr_{self.learning_rate}-Unfreeze{self.unfreeze}-{_}-{self.start_time}.log' for _ in logger_name_list]
+        file_name_list = [f'{self.encoder_name_for_filename}-{self.data_label}-lr_{self.learning_rate}{_}-{self.start_time}.log' for _ in logger_name_list]
         
         self.set_logger_environment(file_name_list, logger_name_list)
         
@@ -147,7 +144,6 @@ class LearningEnv:
         # ckpt_filename = f'total-use_test_to_valid-{self.encoder_name_for_filename}{self.data_label}-epoch_{epoch}-lr_{self.learning_rate}-{self.start_time}'
         ckpt_filename = self.log_folder_name
         model = LitPRGMoE(**self.model_args)
-        
         if self.ckpt_type == 'emotion-f1':
             monitor_val = "emo 3.weighted-f1"
         elif self.ckpt_type == 'cause-f1':
@@ -174,10 +170,19 @@ class LearningEnv:
             "strategy": 'ddp_find_unused_parameters_true',
             "check_val_every_n_epoch": 1,
             "accumulate_grad_batches": self.accumulate_grad_batches,
-            "callbacks": [on_best_cause_f1, on_best_joint_f1],
+            "callbacks": [on_best_cause_f1]
         }
         trainer = L.Trainer(**trainer_config)
         trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
+        
+        # # Test for Joint Performance
+        # model_path_joint = f'{self.model_save_path}/joint-f1/{ckpt_filename}joint-f1.ckpt'
+        # model = LitPRGMoE.load_from_checkpoint(checkpoint_path=model_path_joint, **self.model_args)
+        # trainer.test(model, dataloaders=test_dataloader)
+        
+        # Test for Cause Performance
+        model_path_cause = f'{self.model_save_path}/cause-f1/{ckpt_filename}cause-f1.ckpt'
+        model = LitPRGMoE.load_from_checkpoint(checkpoint_path=model_path_cause, **self.model_args)
         trainer.test(model, dataloaders=test_dataloader)
     
     def test(self):

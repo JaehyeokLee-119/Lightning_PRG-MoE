@@ -34,7 +34,7 @@ if __name__ == "__main__":
     lr = [5e-5]
     batch_sizes = [5]
     gpus = [1]
-    loss_lambda = 0.2
+    loss_lambda_list = [0.4]
     accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
     # cause_encoder_name_list = ['roberta-base']
@@ -42,12 +42,12 @@ if __name__ == "__main__":
         # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
         # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
     encoder_name_list = ['bert-base-cased'] #['distilroberta-base',]# ['bert-base-cased']#
-    encoder_label_list = ['PRG-MoE(BERT)-Contexted'] #['Distilroberta-base', ] #['PRG-MoE(BERT)']#
-    mode = 'train'
-    use_newfc = False
+    encoder_label_list = ['PRG-MoE(BERT)-원래Contexted-정방향-lambda0.4'] #['Distilroberta-base', ] #['PRG-MoE(BERT)']#
+        # A Said
+    use_exp12 = False
     epoch = 20
-    ckpt_type = 'cause-f1' # 'cause-f1', 'emotion-f1', 'joint-f1'
-    model_save_path = "/hdd/hjl8708/0507-context"
+    ckpt_type = 'joint-f1' # 'cause-f1', 'emotion-f1', 'joint-f1'
+    model_save_path = "/hdd/hjl8708/0509-context"
     multiclass_avg_type = 'micro'
     window_size = 3
     freeze_ratio = 0
@@ -55,57 +55,57 @@ if __name__ == "__main__":
     contain_context = True
     max_seq_len = 75
     
+    mode = 'train'
     if mode == 'train':
         for encoder_name, encoder_label in zip(encoder_name_list, encoder_label_list):
-            for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, data_label):
-                for lr_ in lr:
-                    for batch_size in batch_sizes:
-                        runner = main.Main()
-                        runner.set_dataset(tr, va, te, dl)
-                        runner.set_gpus(gpus)
-                        runner.set_hyperparameters(learning_rate=lr_, batch_size=batch_size)
-                        
-                        runner.set_value('contain_context', contain_context)
-                        runner.set_value('max_seq_len', max_seq_len)
-                        
-                        runner.set_value('training_iter', epoch)
-                        runner.set_value('encoder_name', encoder_name)
-                        runner.set_value('model_save_path', model_save_path)
-                        runner.set_value('accumulate_grad_batches', accumulate_grad_batches)
-                        runner.set_value('loss_lambda', loss_lambda)
-                        runner.set_value('ckpt_type', ckpt_type)
-                        runner.set_value('freeze_ratio', freeze_ratio)
-                        runner.set_value('use_newfc', use_newfc)
-                        runner.set_value('multiclass_avg_type', multiclass_avg_type)
-                        runner.set_value('log_directory', 'logs')
-                        runner.set_value('window_size', window_size)
-                        encoder_name_for_filename = encoder_name.replace('/', '-')
-                        # runner.set_value('log_folder_name', f'Encoder_loss_lambda{loss_lambda}-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')
-                        runner.set_value('log_folder_name', f'Gpu{gpus}{encoder_label} Epoch{epoch}: for BEST {multiclass_avg_type} {ckpt_type},losslambda{loss_lambda}, UseNewFC-{use_newfc}_{dl}-{start_time}')
-                        runner.run()
-                        
-                        del runner
+            for loss_lambda in loss_lambda_list:
+                for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, data_label):
+                    for lr_ in lr:
+                        for batch_size in batch_sizes:
+                            runner = main.Main()
+                            runner.set_dataset(tr, va, te, dl)
+                            runner.set_gpus(gpus)
+                            runner.set_hyperparameters(learning_rate=lr_, batch_size=batch_size)
+                            
+                            runner.set_value('contain_context', contain_context)
+                            runner.set_value('max_seq_len', max_seq_len)
+                            
+                            runner.set_value('training_iter', epoch)
+                            runner.set_value('encoder_name', encoder_name)
+                            runner.set_value('model_save_path', model_save_path)
+                            runner.set_value('accumulate_grad_batches', accumulate_grad_batches)
+                            runner.set_value('loss_lambda', loss_lambda)
+                            runner.set_value('ckpt_type', ckpt_type)
+                            runner.set_value('freeze_ratio', freeze_ratio)
+                            runner.set_value('use_exp12', use_exp12)
+                            runner.set_value('multiclass_avg_type', multiclass_avg_type)
+                            runner.set_value('log_directory', 'logs')
+                            runner.set_value('window_size', window_size)
+                            encoder_name_for_filename = encoder_name.replace('/', '-')
+                            # runner.set_value('log_folder_name', f'Encoder_loss_lambda{loss_lambda}-{encoder_filename}_Total_Test_{dl}_batch{batch_size}')
+                            runner.set_value('log_folder_name', f'Gpu{gpus}{encoder_label} Epoch{epoch}: for BEST {multiclass_avg_type} {ckpt_type},losslambda{loss_lambda}, use_exp12-{use_exp12}_{dl}-{start_time}')
+                            runner.run()
+                            
+                            del runner
     else: # test
-        test_model_list = [
-            # separated 0,1,2,3,4 / unseparated 5,6,7,8,9
-            * [f'/hdd/hjl8708/0424-lightning/(모델타입:BEST joint_accuracy, UseNewFC-True-batch5,축적1-losslambda0.2)bert-base-cased_-data_{fold_}_DailyDialog.ckpt' for fold_ in range(1, 5)],
-            '/hdd/hjl8708/0424-lightning/(모델타입:BEST joint_accuracy, UseNewFC-True-batch5,축적1-losslambda0.2)bert-base-cased_-original_data_DailyDialog.ckpt'
-        ]
-        test_log_folder_list = [
-            * [f'TEST_bert-joint_accuracy-at_data{fold_}' for fold_ in range(1, 5)],
-            'TEST_bert-joint_accuracy-at_original',
-        ]
+        test_model_template = '/hdd/hjl8708/0507-context/cause-f1/Gpu[1]PRG-MoE(BERT)-Context[SEP]구분 Epoch20: for BEST micro cause-f1,losslambda0.2, UseNewFC-False_[dl]-2023-05-08 02:09:08.800942cause-f1.ckpt'
         encoder_name = 'bert-base-cased'
-        for tr, va, te, dl, tm, tfn in zip(train_data_list, valid_data_list, test_data_list, 
-                                      data_label, test_model_list, test_log_folder_list):
+        
+        encoder_label = encoder_name.replace('/', '-')
+        
+        for tr, va, te, dl in zip(train_data_list, valid_data_list, test_data_list, 
+                                      data_label):
+            test_model = test_model_template.replace('[dl]', dl)
+            test_model_filename = test_model.split('/')[-1]
             runner = main.Main()
             runner.set_dataset(tr, va, te, dl)
             runner.set_gpus(gpus)
             runner.set_value('encoder_name', encoder_name)
-            runner.set_test(ckpt_path=tm)
-            runner.set_value('use_newfc', True)
-            runner.set_value('log_folder_name', tfn)
+            runner.set_hyperparameters(learning_rate=lr[0], batch_size=batch_sizes[0])
+            runner.set_value('contain_context', contain_context)
+            runner.set_value('max_seq_len', max_seq_len)
+            runner.set_test(ckpt_path=test_model)
+            runner.set_value('use_newfc', use_newfc)
+            runner.set_value('log_folder_name', f'TEST-{test_model_filename}')
             runner.run()
-            
-            del runner
         

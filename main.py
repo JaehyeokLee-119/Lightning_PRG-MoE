@@ -58,8 +58,8 @@ def parse_args() -> argparse.Namespace:
     # 원래의 PRG-MoE 모델을 사용한다 (데이터 비교를 위해)
     parser.add_argument('--use_original', default=False)
     
-    # Cause 부분에 FC Layer 추가를 사용한다
-    parser.add_argument('--use_newfc', default=False, type=bool)
+    # use_exp12
+    parser.add_argument('--use_exp12', default=False, type=bool)
 
     # Training Hyperparameters
     parser.add_argument('--dropout', default=0.5, type=float)

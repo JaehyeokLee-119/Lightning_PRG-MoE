@@ -148,19 +148,29 @@ def load_utterance(data_file, device, max_seq_len, encoder_name):
     return (out_utterance_input_ids, out_utterance_attention_mask, out_utterance_token_type_ids), max_doc_len, max_seq_len
 
 def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
-    def make_context(utterance_list, start_t, end_t, max_seq_len):
+    def make_context(utterance_list, speaker_list, start_t, end_t, max_seq_len):
+        # context = "[SEP]".join(utterance_list[start_t:end_t])
+        # Original: context = " ".join(utterance_list[start_t:end_t])
+        # 1st(context를 [SEP]로 분리): context = "[SEP]".join(utterance_list[start_t:end_t])
+        # 2nd(context 순서를 뒤집어 최신이 앞에 오게): context = "[SEP]".join(utterance_list[start_t:end_t][::-1])
+        # 3rd(화자 정보를 추가: [CLS] A said [SEP] 내용 [SEP] B said [SEP] 이전 발화 ...): 
+        # 4th(화자 정보를 추가: [CLS] [Speaker A] 내용 [/Speaker A] [SEP] [Speaker B] 내용 [/Speaker B] 이전 발화 ...):
+        # 5th(화자 정보를 추가: [CLS] [Speaker A] 내용 [SEP] [Speaker B] 내용 [SEP] [Speaker A] 내용 [SEP] ...)
+        
         context = " ".join(utterance_list[start_t:end_t])
-
+        # # 아래 3줄은 3rd, 4th, 5th를 위한 코드
+        # context = ""
+        # for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+        #     context += f'[Speaker {speaker}] {utterance} [SEP]'
+            
         if start_t > end_t:
             return ""
 
         if len(context.split()) + len(utterance_list[end_t].split()) > max_seq_len:
-            context = make_context(utterance_list=utterance_list, start_t=start_t+1, end_t=end_t, max_seq_len=max_seq_len)
+            context = make_context(utterance_list=utterance_list, speaker_list=speaker_list, start_t=start_t+1, end_t=end_t, max_seq_len=max_seq_len)
         else:
             return context
         
-        # ver2
-         
         return context
     
     f = open(data_file)
@@ -168,6 +178,9 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
     f.close()
 
     tokenizer_ = AutoTokenizer.from_pretrained(encoder_name)
+    
+    tokens = ["[Speaker A]", "[Speaker B]", "[/Speaker A]", "[/Speaker B]"]
+    tokenizer_.add_tokens(tokens, special_tokens=True)
 
     max_seq_len = max_seq_len
     max_doc_len = 0
@@ -176,17 +189,25 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
 
     for doc_id, content in data.items():
         single_utterances = list()
+        single_utterances_speaker = list()
         utterance = list()
         content = content[0]
         max_doc_len = max(len(content), max_doc_len)
 
         for turn_data in content:
             single_utterances.append(turn_data["utterance"])
+            single_utterances_speaker.append(turn_data["speaker"])
 
         for end_t in range(len(single_utterances)):
-            context = make_context(utterance_list=single_utterances, start_t=0, end_t=end_t, max_seq_len=max_seq_len)
-
+            context = make_context(utterance_list=single_utterances, speaker_list=single_utterances_speaker, start_t=0, end_t=end_t, max_seq_len=max_seq_len)
+            
+            # Original
             utterance.append(tokenizer_(single_utterances[end_t], context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            
+            # # Speaker 정보 추가
+            # spk = single_utterances_speaker[end_t]
+            # speaker_plus_utterance = f'[Speaker {spk}] {single_utterances[end_t]}' # 감싸거나 말거나
+            # utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
         
         doc_utterance.append(utterance)
         
@@ -199,10 +220,16 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
 
         utterance_t = utterance_t + padding_sequence_t
         utterance_input_ids_t, utterance_attention_mask_t, utterance_token_type_ids_t = [list() for _ in range(3)]
+        
         for _ in utterance_t:
-            utterance_input_ids_t.append(_['input_ids'])
-            utterance_attention_mask_t.append(_['attention_mask'])
-            utterance_token_type_ids_t.append(_['token_type_ids'])
+            if ('token_type_ids' in _.keys()):
+                utterance_input_ids_t.append(_['input_ids'])
+                utterance_attention_mask_t.append(_['attention_mask'])
+                utterance_token_type_ids_t.append(_['token_type_ids'])
+            else: #RoBERTa 류는 token_type_ids 가 없음
+                utterance_input_ids_t.append(_['input_ids'])
+                utterance_attention_mask_t.append(_['attention_mask'])
+                utterance_token_type_ids_t.append(torch.zeros(_['input_ids'].shape).to(torch.int)) # 그 자리에 크기만큼 0으로 채운 텐서 넣음
 
         utterance_input_ids_t = torch.vstack(utterance_input_ids_t)
         utterance_attention_mask_t = torch.vstack(utterance_attention_mask_t)

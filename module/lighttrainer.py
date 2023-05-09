@@ -10,7 +10,7 @@ from module.evaluation import FocalLoss #log_metrics,
 from sklearn.metrics import classification_report, precision_score , recall_score , confusion_matrix
 from transformers import AutoModel
 import numpy as np
-from module.lightmodels import TotalModel, OriginalPRG_MoE, TotalModel_cause_fc
+from module.lightmodels import TotalModel, OriginalPRG_MoE, TotalModel_exp12
 
 class LitPRGMoE(pl.LightningModule):
     def __init__(self, **kwargs):
@@ -21,14 +21,14 @@ class LitPRGMoE(pl.LightningModule):
         # Model
         
         self.use_original = kwargs['use_original']
-        self.use_newfc = kwargs['use_newfc']
+        self.use_exp12 = kwargs['use_exp12']
         
         self.freeze_ratio = kwargs['freeze_ratio']
         if self.use_original:
             self.model = OriginalPRG_MoE() # output: (emotion prediction, cause prediction)
         else:
-            if self.use_newfc:
-                self.model = TotalModel_cause_fc(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
+            if self.use_exp12:
+                self.model = TotalModel_exp12(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
             else:
                 self.model = TotalModel(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
 
@@ -444,7 +444,7 @@ class LitPRGMoE(pl.LightningModule):
                 confusion_log+=f'{label}\t'
                 for col in row:
                     confusion_log+=f'{col}\t'
-                confusion_log+="\n\n"
+                confusion_log+="\n"
             logger.info(confusion_log)
             # logger.info(confusion_log)
             

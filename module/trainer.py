@@ -43,7 +43,7 @@ class LearningEnv:
         self.training_iter = kwargs['training_iter']
         
         self.use_original = kwargs['use_original']
-        self.use_newfc = kwargs['use_newfc']
+        self.use_exp12 = kwargs['use_exp12']
         self.model_name = kwargs['model_name']
         self.port = kwargs['port']
         
@@ -90,7 +90,7 @@ class LearningEnv:
             "training_iter": self.training_iter,
             "encoder_name": self.encoder_name,
             "use_original": self.use_original,
-            "use_newfc": self.use_newfc,
+            "use_exp12": self.use_exp12,
             "ckpt_type": self.ckpt_type,
             "multiclass_avg_type": self.multiclass_avg_type,
             "window_size": self.window_size,
@@ -170,7 +170,7 @@ class LearningEnv:
             "strategy": 'ddp_find_unused_parameters_true',
             "check_val_every_n_epoch": 1,
             "accumulate_grad_batches": self.accumulate_grad_batches,
-            "callbacks": [on_best_cause_f1]
+            "callbacks": [on_best_joint_f1]
         }
         trainer = L.Trainer(**trainer_config)
         trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
@@ -181,7 +181,7 @@ class LearningEnv:
         # trainer.test(model, dataloaders=test_dataloader)
         
         # Test for Cause Performance
-        model_path_cause = f'{self.model_save_path}/cause-f1/{ckpt_filename}cause-f1.ckpt'
+        model_path_cause = f'{self.model_save_path}/joint-f1/{ckpt_filename}joint-f1.ckpt'
         model = LitPRGMoE.load_from_checkpoint(checkpoint_path=model_path_cause, **self.model_args)
         trainer.test(model, dataloaders=test_dataloader)
     

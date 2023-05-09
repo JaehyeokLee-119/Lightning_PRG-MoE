@@ -8,14 +8,14 @@ from module.preprocessing import get_pair_pad_idx, get_pad_idx
 from transformers import get_cosine_schedule_with_warmup
 from module.evaluation import log_metrics, FocalLoss
 from sklearn.metrics import classification_report
-from transformers import AutoModel, AutoModelForSequenceClassification, BertModel
+from transformers import AutoModel, AutoModelForSequenceClassification, BertModel, AutoTokenizer
 import numpy as np
 
-class TotalModel_cause_fc(pl.LightningModule):
+class TotalModel_exp12(pl.LightningModule):
     def __init__(self, encoder_name, freeze_ratio=0.0, guiding_lambda=0.6, n_emotion=7, n_expert=4, n_cause=2, dropout=0.5):
         super().__init__()
         self.guiding_lambda = guiding_lambda
-        self.n_expert = n_expert
+        self.n_expert = 14
         self.n_emotion = n_emotion
         self.n_cause = n_cause
         
@@ -31,23 +31,14 @@ class TotalModel_cause_fc(pl.LightningModule):
         pair_embedding_size = 2 * (self.model.config.hidden_size + n_emotion + 1)
         
         self.fc_cau = nn.Linear(self.model.config.hidden_size, self.model.config.hidden_size)
-        self.gating_network = nn.Linear(pair_embedding_size, n_expert)
+        self.gating_network = nn.Linear(pair_embedding_size, self.n_expert)
         self.cause_linear = nn.ModuleList()
-        for _ in range(n_expert):
+        for _ in range(self.n_expert):
             self.cause_linear.append(nn.Sequential(nn.Linear(pair_embedding_size, 256), nn.Linear(256, n_cause)))
         self.dropout = nn.Dropout(dropout)
         
         
     def forward(self, input_ids, attention_mask, token_type_ids, speaker_ids, max_seq_len):
-        # self.encoder = self.model.roberta
-        # self.classifier = self.model.classifier
-        # emotion_prediction = self.model(input_ids=input_ids.view(-1, max_seq_len),
-        #                             attention_mask=attention_mask.view(-1, max_seq_len),
-        #                             return_dict=False)
-        # pooled_output = self.model.roberta(input_ids=input_ids.view(-1, max_seq_len),
-        #                             attention_mask=attention_mask.view(-1, max_seq_len),
-        #                             return_dict=False)[0][:,0,:]
-        # emotion_prediction = emotion_prediction[0]
         
         outputs = self.model(input_ids=input_ids.view(-1, max_seq_len),
                                     attention_mask=attention_mask.view(-1, max_seq_len),
@@ -57,8 +48,7 @@ class TotalModel_cause_fc(pl.LightningModule):
         
         # encoder(AutoModelForClassification)에서 분류 결과와 pooled_output을 받아와야 함
         
-        pooled_output_cause = self.fc_cau(pooled_output) # FC 하나를 추가
-        pair_embedding = self.get_pair_embedding(pooled_output_cause, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
+        pair_embedding = self.get_pair_embedding(pooled_output, emotion_prediction, input_ids, attention_mask, token_type_ids, speaker_ids)
             # -> 2030개의 pair_embedding 생성됨 ([5, 406, 1552])
         gating_prob = self.gating_network(pair_embedding.view(-1, pair_embedding.shape[-1]).detach()) # [5, 406, 1552] -> [2030, 1552]
             # pair마다 gating probability를 계산 [2030, 4]
@@ -108,21 +98,16 @@ class TotalModel_cause_fc(pl.LightningModule):
             for end_t in range(max_doc_len):
                 for t in range(end_t + 1):
                     speaker_condition = speaker_batch[t] == speaker_batch[end_t]
+                    
+                    # 00,   10,     20,     30,     40,     50,     01,     11,     21,     31,     41,     51
+                    # n_expert = 12
+                    # 0     1       2       3       4       5       6       7       8       9       10      11
+                    one_hot_index = int(speaker_condition*(self.n_expert/2) + torch.argmax(emotion_batch[end_t]))
                     emotion_condition = torch.argmax(
                         emotion_batch[t]) == torch.argmax(emotion_batch[end_t])
-
-                    if speaker_condition and emotion_condition:
-                        # if speaker and dominant emotion are same
-                        info_pair_per_batch.append(torch.Tensor([1, 0, 0, 0]))
-                    elif speaker_condition:
-                        # if speaker is same, but dominant emotion is differnt
-                        info_pair_per_batch.append(torch.Tensor([0, 1, 0, 0]))
-                    elif emotion_condition:
-                        # if speaker is differnt, but dominant emotion is same
-                        info_pair_per_batch.append(torch.Tensor([0, 0, 1, 0]))
-                    else:
-                        # if speaker and dominant emotion are differnt
-                        info_pair_per_batch.append(torch.Tensor([0, 0, 0, 1]))
+                    one_hot_position = torch.Tensor([0] * self.n_expert)
+                    one_hot_position[one_hot_index] = 1
+                    info_pair_per_batch.append(one_hot_position)
             pair_info.append(torch.stack(info_pair_per_batch))
 
         pair_info = torch.stack(pair_info).to(input_ids.device)
@@ -140,6 +125,11 @@ class TotalModel(pl.LightningModule):
         # Model
         self.model = AutoModelForSequenceClassification.from_pretrained(encoder_name, output_hidden_states=True, num_labels=n_emotion)
         
+        tokenizer_ = AutoTokenizer.from_pretrained(encoder_name)
+        tokens = ["[Speaker A]", "[Speaker B]", "[/Speaker A]", "[/Speaker B]"]
+        tokenizer_.add_tokens(tokens, special_tokens=True)
+        
+        self.model.resize_token_embeddings(len(tokenizer_))
         # Model freeze
         if freeze_ratio > 0:
             for name, param in self.model.named_parameters():
@@ -166,7 +156,6 @@ class TotalModel(pl.LightningModule):
         #                             attention_mask=attention_mask.view(-1, max_seq_len),
         #                             return_dict=False)[0][:,0,:]
         # emotion_prediction = emotion_prediction[0]
-        
         outputs = self.model(input_ids=input_ids.view(-1, max_seq_len),
                                     attention_mask=attention_mask.view(-1, max_seq_len),
                                     return_dict=False)

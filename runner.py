@@ -23,12 +23,6 @@ if __name__ == "__main__":
     ]
     data_label = ['-original_data_DailyDialog', *[f'-data_{fold_}_DailyDialog' for fold_ in range(1, 5)]]
     
-    # # Original Dataset (1 fold)
-    # train_data_list = ['data/data_fold/data_0/dailydialog_train.json']
-    # valid_data_list = ['data/data_fold/data_0/dailydialog_valid.json']
-    # test_data_list = ['data/data_fold/data_0/dailydialog_test.json']
-    # data_label = ['-original_fold']
-    
     start_time = datetime.datetime.now()
     
     lr = [5e-5]

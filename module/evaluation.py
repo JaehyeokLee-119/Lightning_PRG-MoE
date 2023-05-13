@@ -58,11 +58,11 @@ def log_metrics(logger, emo_pred_y_list, emo_true_y_list, cau_pred_y_list, cau_t
 
     only_emo_acc, only_emo_macro, only_emo_weighted = acc_emo, report_dict['macro avg']['f1-score'], f1_emo
     
-    # # For binary emotion classification
-    # logger.info('\n' + metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list)))
-    # report_dict = metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), get_dict=True)
-    # acc_emo, p_emo, r_emo, f1_emo = report_dict['accuracy'], report_dict['weighted avg']['precision'], report_dict['weighted avg']['recall'], report_dict['weighted avg']['f1-score']
-    # logger.info(f'\nemotion (binary): {option} | loss {loss_avg}\n')
+    # For binary emotion classification
+    logger.info('\n' + metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list)))
+    report_dict = metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), get_dict=True)
+    acc_emo, p_emo, r_emo, f1_emo = report_dict['accuracy'], report_dict['weighted avg']['precision'], report_dict['weighted avg']['recall'], report_dict['weighted avg']['f1-score']
+    logger.info(f'\nemotion (binary): {option} | loss {loss_avg}\n')
 
     # CAUSE 부분
     label_ = np.array(['No Cause', 'Cause'])

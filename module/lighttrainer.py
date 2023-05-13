@@ -68,6 +68,7 @@ class LitPRGMoE(pl.LightningModule):
         self.emo_cause_true_y_list = {}
         self.emo_cause_pred_y_list_all = {}
         self.emo_cause_true_y_list_all = {}
+        self.emo_cause_pred_y_list_all_windowed = {}
         self.loss_sum = {}
         self.batch_count = {}
         
@@ -82,6 +83,7 @@ class LitPRGMoE(pl.LightningModule):
             self.emo_cause_true_y_list[i] = []
             self.emo_cause_pred_y_list_all[i] = []
             self.emo_cause_true_y_list_all[i] = []
+            self.emo_cause_pred_y_list_all_windowed[i] = []
             self.loss_sum[i] = 0.0
             self.batch_count[i] = 0
         
@@ -149,7 +151,7 @@ class LitPRGMoE(pl.LightningModule):
                     for _ in range(end_t+1): # 
                         emotion_pair_list.append(torch.argmax(utt_emotion)) # 모델의 감정 예측을 index[7->1]화
                     end_t += 1
-        binary_cause_pred_window_full = torch.argmax(binary_cause_prediction.view(batch_size, -1, self.n_cause), dim=-1)
+        # binary_cause_pred_window_full = torch.argmax(binary_cause_prediction.view(batch_size, -1, self.n_cause), dim=-1)
         emotion_label_pair_list = [] 
         for doc_emotion in emotion_label_batch:
             end_t = 0
@@ -167,6 +169,12 @@ class LitPRGMoE(pl.LightningModule):
         
         # Cause prediction, label
         pair_binary_cause_prediction_window = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_window_idx != False).nonzero(as_tuple=True)]
+        
+        # pair_binary_cause_prediction_all_windowed은 binary_cause_prediction에서 check_pair_window_idx가 0인 것은 전부 0으로 바뀐 형태
+        pair_prediction_argmax = torch.argmax(binary_cause_prediction, dim=1)
+        pair_prediction_argmax_windowed = pair_prediction_argmax.cpu() * check_pair_window_idx.view(-1)
+        pair_prediction_argmax_windowed_all = pair_prediction_argmax_windowed.view(batch_size, -1)[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
+        
         pair_binary_cause_prediction_all = binary_cause_prediction.view(batch_size, -1, self.n_cause)[(check_pair_pad_idx != False).nonzero(as_tuple=True)]
         
         pair_binary_cause_label_batch_window = pair_binary_cause_label_batch[(check_pair_window_idx != False).nonzero(as_tuple=True)]
@@ -186,7 +194,7 @@ class LitPRGMoE(pl.LightningModule):
         
         emotion_ = (emotion_prediction_filtered, emotion_label_batch_filtered)
         cause_ = (pair_binary_cause_prediction_window, pair_binary_cause_prediction_all, pair_binary_cause_label_batch_window, pair_binary_cause_label_batch_all)
-        emotion_cause_ = (pair_emotion_cause_prediction_window, pair_emotion_cause_prediction_all, pair_emotion_cause_label_batch_window, pair_emotion_cause_label_batch_all)
+        emotion_cause_ = (pair_emotion_cause_prediction_window, pair_emotion_cause_prediction_all, pair_emotion_cause_label_batch_window, pair_emotion_cause_label_batch_all, pair_prediction_argmax_windowed_all)
         return (emotion_, cause_, emotion_cause_)
     
     
@@ -226,7 +234,7 @@ class LitPRGMoE(pl.LightningModule):
         
         (emotion_prediction_filtered, emotion_label_batch_filtered) = emotion_
         (pair_binary_cause_prediction_window, pair_binary_cause_prediction_all, pair_binary_cause_label_batch_window, pair_binary_cause_label_batch_all) = cause_
-        (pair_emotion_cause_prediction_window, pair_emotion_cause_prediction_all, pair_emotion_cause_label_batch_window, pair_emotion_cause_label_batch_all) = emotion_cause_
+        (pair_emotion_cause_prediction_window, pair_emotion_cause_prediction_all, pair_emotion_cause_label_batch_window, pair_emotion_cause_label_batch_all, pair_prediction_argmax_windowed_all) = emotion_cause_
         
         # Logging
         self.cau_pred_y_list_all[types].append(pair_binary_cause_prediction_all), self.cau_true_y_list_all[types].append(pair_binary_cause_label_batch_all)
@@ -236,6 +244,7 @@ class LitPRGMoE(pl.LightningModule):
         self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_window)
         self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_all)
         self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_all)
+        self.emo_cause_pred_y_list_all_windowed[types].append(pair_prediction_argmax_windowed_all)
         
         # Loss Calculation
         loss = self.loss_calculation(emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
@@ -256,7 +265,7 @@ class LitPRGMoE(pl.LightningModule):
         
         (emotion_prediction_filtered, emotion_label_batch_filtered) = emotion_
         (pair_binary_cause_prediction_window, pair_binary_cause_prediction_all, pair_binary_cause_label_batch_window, pair_binary_cause_label_batch_all) = cause_
-        (pair_emotion_cause_prediction_window, pair_emotion_cause_prediction_all, pair_emotion_cause_label_batch_window, pair_emotion_cause_label_batch_all) = emotion_cause_
+        (pair_emotion_cause_prediction_window, pair_emotion_cause_prediction_all, pair_emotion_cause_label_batch_window, pair_emotion_cause_label_batch_all, pair_prediction_argmax_windowed_all) = emotion_cause_
         
         # Loss Calculation
         loss = self.loss_calculation(emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
@@ -270,6 +279,7 @@ class LitPRGMoE(pl.LightningModule):
         self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_window)
         self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_all)
         self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_all)
+        self.emo_cause_pred_y_list_all_windowed[types].append(pair_prediction_argmax_windowed_all)
         
         self.loss_sum[types] += loss.item()
         self.batch_count[types] += 1
@@ -285,7 +295,7 @@ class LitPRGMoE(pl.LightningModule):
         
         (emotion_prediction_filtered, emotion_label_batch_filtered) = emotion_
         (pair_binary_cause_prediction_window, pair_binary_cause_prediction_all, pair_binary_cause_label_batch_window, pair_binary_cause_label_batch_all) = cause_
-        (pair_emotion_cause_prediction_window, pair_emotion_cause_prediction_all, pair_emotion_cause_label_batch_window, pair_emotion_cause_label_batch_all) = emotion_cause_
+        (pair_emotion_cause_prediction_window, pair_emotion_cause_prediction_all, pair_emotion_cause_label_batch_window, pair_emotion_cause_label_batch_all, pair_prediction_argmax_windowed_all) = emotion_cause_
         
         # Loss Calculation
         loss = self.loss_calculation(emotion_prediction_filtered, emotion_label_batch_filtered, pair_binary_cause_prediction_window, pair_binary_cause_label_batch_window)
@@ -299,6 +309,7 @@ class LitPRGMoE(pl.LightningModule):
         self.emo_cause_true_y_list[types].append(pair_emotion_cause_label_batch_window)
         self.emo_cause_pred_y_list_all[types].append(pair_emotion_cause_prediction_all)
         self.emo_cause_true_y_list_all[types].append(pair_emotion_cause_label_batch_all)
+        self.emo_cause_pred_y_list_all_windowed[types].append(pair_prediction_argmax_windowed_all)
         
         self.loss_sum[types] += loss.item()
         self.batch_count[types] += 1
@@ -344,11 +355,12 @@ class LitPRGMoE(pl.LightningModule):
         logger = logging.getLogger(types)
         
         loss_avg = self.loss_sum[types] / self.batch_count[types]
-        emo_report, emo_metrics, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau = log_metrics(self.emo_pred_y_list[types], self.emo_true_y_list[types], 
+        emo_report, emo_metrics, emo_binary_report, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau = log_metrics(self.emo_pred_y_list[types], self.emo_true_y_list[types], 
                                                 self.cau_pred_y_list[types], self.cau_true_y_list[types],
                                                 self.cau_pred_y_list_all[types], self.cau_true_y_list_all[types], 
                                                 self.emo_cause_pred_y_list[types], self.emo_cause_true_y_list[types],
                                                 self.emo_cause_pred_y_list_all[types], self.emo_cause_true_y_list_all[types],
+                                                self.emo_cause_pred_y_list_all_windowed[types], 
                                                 loss_avg, self.multiclass_avg_type)
         
         self.log('binary_cause 1.loss', loss_avg, sync_dist=True)
@@ -366,8 +378,9 @@ class LitPRGMoE(pl.LightningModule):
         self.log('emo-cau 3.f1-score', f1_emo_cau, sync_dist=True)
         
         logging_texts = f'\n[Epoch {self.current_epoch}] / <Emotion Prediction> of {types}\n'+\
-                        f'Train type: {self.train_type}\n'+\
                         emo_report+\
+                        f'\n<Binary-Emotion Prediction Performance>\n'+\
+                        emo_binary_report+\
                         f'\n<Emotion-Cause Prediction>'+\
                         f'\n\taccuracy: \t{acc_cau}'+\
                         f'\n\tprecision:\t{p_cau}'+\
@@ -499,10 +512,27 @@ class LitPRGMoE(pl.LightningModule):
 
         return pair_info
     
+def metrics_report_for_emo_binary(pred_y, true_y, get_dict=False, multilabel=False):
+    if multilabel:
+        pred_y, true_y = threshold_prediction(pred_y, true_y)
+        available_label = sorted(list(set((pred_y == True).nonzero()[:, -1].tolist() + (true_y == True).nonzero()[:, -1].tolist())))
+    else:
+        pred_y, true_y = argmax_prediction(pred_y, true_y)
+        available_label = sorted(list(set(true_y.tolist() + pred_y.tolist())))
+
+    class_name = ['non-neutral', 'neutral']
+    pred_y = [1 if element == 6 else 0 for element in pred_y] # element 6 means neutral.
+    true_y = [1 if element == 6 else 0 for element in true_y]
+
+    if get_dict:
+        return classification_report(true_y, pred_y, target_names=class_name, zero_division=0, digits=4, output_dict=True)
+    else:
+        return classification_report(true_y, pred_y, target_names=class_name, zero_division=0, digits=4)
+
     
 def log_metrics(emo_pred_y_list, emo_true_y_list, 
                 cau_pred_y_list, cau_true_y_list, cau_pred_y_list_all, cau_true_y_list_all, 
-                emo_cause_pred_y_list, emo_cause_true_y_list, emo_cause_pred_y_list_all, emo_cause_true_y_list_all,                
+                emo_cause_pred_y_list, emo_cause_true_y_list, emo_cause_pred_y_list_all, emo_cause_true_y_list_all, emo_cause_pred_y_list_all_windowed,
                 loss_avg, multiclass_avg_type):
     # <<[[ Emotion 부분 ]]>>
     label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
@@ -512,6 +542,12 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     acc_emo, macro_f1, weighted_f1 = emo_report_dict['accuracy'], emo_report_dict['macro avg']['f1-score'], emo_report_dict['weighted avg']['f1-score']
     emo_metrics = (acc_emo, macro_f1, weighted_f1)
     
+    # For binary emotion classification
+    # logger.info('\n' + metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list)))
+    emo_binary_str = metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), get_dict=False)
+    # acc_emo, p_emo, r_emo, f1_emo = report_dict['accuracy'], report_dict['weighted avg']['precision'], report_dict['weighted avg']['recall'], report_dict['weighted avg']['f1-score']
+    # logger.info(f'\nemotion (binary): {option} | loss {loss_avg}\n')
+    
     # <<[[  Cause 부분  ]]>>
     label_ = np.array(['No Cause', 'Cause'])
     report_dict = metrics_report(torch.cat(cau_pred_y_list), torch.cat(cau_true_y_list), label=label_, get_dict=True)
@@ -520,7 +556,12 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     else:   #추가된 부분
         _, p_cau, _, _ = 0, 0, 0, 0   #추가된 부분
         
-    report_dict = metrics_report(torch.cat(cau_pred_y_list_all), torch.cat(cau_true_y_list_all), label=label_, get_dict=True)
+    # 원래의 recall (window 상관없이 recall을 구한 원래 recall 측정 메트릭)
+    # report_dict = metrics_report(torch.cat(cau_pred_y_list_all), torch.cat(cau_true_y_list_all), label=label_, get_dict=True)
+    
+    class_name = list(label_)
+    report_dict = classification_report(torch.cat(cau_true_y_list_all).cpu(), torch.cat(emo_cause_pred_y_list_all_windowed).cpu(), target_names=class_name, zero_division=0, digits=4, output_dict=True)
+    
     if 'Cause' in report_dict.keys():   #추가된 부분
         acc_cau, _, r_cau, _ = report_dict['accuracy'], report_dict['Cause']['precision'], report_dict['Cause']['recall'], report_dict['Cause']['f1-score']
     else:   #추가된 부분
@@ -570,7 +611,8 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     '''
     # 불균형이 심하므로 micro
     micro_precision = sum(pred_num_acc_list) / sum(pred_num_precision_denominator_dict)
-    micro_recall = sum(pred_num_acc_list_all) / sum(pred_num_recall_denominator_dict)
+    micro_recall = sum(pred_num_acc_list) / sum(pred_num_recall_denominator_dict) # 정답은 단 한 종류만 허용
+    # micro_recall = sum(pred_num_acc_list_all) / sum(pred_num_recall_denominator_dict)
     micro_f1 = 2 * micro_precision * micro_recall / (micro_precision + micro_recall) if micro_precision + micro_recall != 0 else 0
     
     p_emo_cau = micro_precision
@@ -581,7 +623,7 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     # r_emo_cau /= len(idx_list)
     # f1_emo_cau = 2 * p_emo_cau * r_emo_cau / (p_emo_cau + r_emo_cau) if p_emo_cau + r_emo_cau != 0 else 0
     
-    return emo_report_str, emo_metrics, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau
+    return emo_report_str, emo_metrics, emo_binary_str, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau
 
 def argmax_prediction(pred_y, true_y):
     pred_argmax = torch.argmax(pred_y, dim=1).cpu()

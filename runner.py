@@ -42,12 +42,12 @@ if __name__ == "__main__":
         # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
         # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
     encoder_name_list = ['bert-base-cased'] #['distilroberta-base',]# ['bert-base-cased']#
-    encoder_label_list = ['PRG-MoE(BERT)-재실험, 스피커한쪽만토큰-정방향-[SEP]구분'] #['Distilroberta-base', ] #['PRG-MoE(BERT)']#
+    encoder_label_list = ['PRG-MoE(BERT)-정답은하나만-스피커한쪽만토큰-정방향-[SEP]구분'] #['Distilroberta-base', ] #['PRG-MoE(BERT)']#
         # A Said
     use_exp12 = False
     epoch = 20
     ckpt_type = 'joint-f1' # 'cause-f1', 'emotion-f1', 'joint-f1'
-    model_save_path = "/hdd/hjl8708/0510-1-context"
+    model_save_path = "/hdd/hjl8708/0513-1-context"
     multiclass_avg_type = 'micro'
     window_size = 3
     freeze_ratio = 0

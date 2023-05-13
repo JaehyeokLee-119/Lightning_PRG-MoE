@@ -34,7 +34,7 @@ if __name__ == "__main__":
     lr = [5e-5]
     batch_sizes = [5]
     gpus = [1]
-    loss_lambda_list = [0.4]
+    loss_lambda_list = [0.2]
     accumulate_grad_batches = 1
     # emotion_encoder_name_list = ['j-hartmann/emotion-english-roberta-large'] , j-hartmann/emotion-english-distilroberta-base
     # cause_encoder_name_list = ['roberta-base']
@@ -42,12 +42,12 @@ if __name__ == "__main__":
         # encoder_name이 ORIGINAL이면, Original PRG-MoE(BertModel)를 사용하고, 아니면, 
         # 해당 이름의 모델(AutoModelForSequenceClassification)을 사용한다.
     encoder_name_list = ['bert-base-cased'] #['distilroberta-base',]# ['bert-base-cased']#
-    encoder_label_list = ['PRG-MoE(BERT)-원래Contexted-정방향-lambda0.4'] #['Distilroberta-base', ] #['PRG-MoE(BERT)']#
+    encoder_label_list = ['PRG-MoE(BERT)-재실험, 스피커한쪽만토큰-정방향-[SEP]구분'] #['Distilroberta-base', ] #['PRG-MoE(BERT)']#
         # A Said
     use_exp12 = False
     epoch = 20
     ckpt_type = 'joint-f1' # 'cause-f1', 'emotion-f1', 'joint-f1'
-    model_save_path = "/hdd/hjl8708/0509-context"
+    model_save_path = "/hdd/hjl8708/0510-1-context"
     multiclass_avg_type = 'micro'
     window_size = 3
     freeze_ratio = 0
@@ -105,7 +105,7 @@ if __name__ == "__main__":
             runner.set_value('contain_context', contain_context)
             runner.set_value('max_seq_len', max_seq_len)
             runner.set_test(ckpt_path=test_model)
-            runner.set_value('use_newfc', use_newfc)
+            # runner.set_value('use_newfc', use_newfc)
             runner.set_value('log_folder_name', f'TEST-{test_model_filename}')
             runner.run()
         

@@ -97,8 +97,7 @@ class TotalModel_exp12(pl.LightningModule):
             info_pair_per_batch = []
             for end_t in range(max_doc_len):
                 for t in range(end_t + 1):
-                    speaker_condition = speaker_batch[t] == speaker_batch[end_t]
-                    
+                    speaker_condition = speaker_batch[t] == speaker_batch[end_t] # speaker가 같은지
                     # 00,   10,     20,     30,     40,     50,     01,     11,     21,     31,     41,     51
                     # n_expert = 12
                     # 0     1       2       3       4       5       6       7       8       9       10      11

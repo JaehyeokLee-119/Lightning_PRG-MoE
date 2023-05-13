@@ -157,15 +157,27 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
         # 4th(화자 정보를 추가: [CLS] [Speaker A] 내용 [/Speaker A] [SEP] [Speaker B] 내용 [/Speaker B] 이전 발화 ...):
         # 5th(화자 정보를 추가: [CLS] [Speaker A] 내용 [SEP] [Speaker B] 내용 [SEP] [Speaker A] 내용 [SEP] ...)
         
-        context = " ".join(utterance_list[start_t:end_t])
+        # context = " ".join(utterance_list[start_t:end_t])
         # # 아래 3줄은 3rd, 4th, 5th를 위한 코드
+        
+        # Code for 6th (역방향)
         # context = ""
-        # for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
-        #     context += f'[Speaker {speaker}] {utterance} [SEP]'
-            
+        # for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+        #     context += f'[Speaker {speaker}] {utterance} '
+        
+        # # Code for 3th~. 
+        # 7th: 정방향, [SEP] 없이 [Speaker A]로만 구분이 되니까 그거 실험해보자
+        context = ""
+        for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+            context += f'[Speaker {speaker}] {utterance} [SEP]' # FOR 3rd method, 'A said':  f'{speaker} said [SEP] {utterance} [SEP]'
+        
         if start_t > end_t:
             return ""
 
+        # tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]}', context, return_tensors="pt")['input_ids'][0])
+        # # 클리핑이 일어나지 않게, 토크나이저에서 잰 길이를 활용함
+        
+        # if tokenized_len > max_seq_len:
         if len(context.split()) + len(utterance_list[end_t].split()) > max_seq_len:
             context = make_context(utterance_list=utterance_list, speaker_list=speaker_list, start_t=start_t+1, end_t=end_t, max_seq_len=max_seq_len)
         else:
@@ -201,13 +213,13 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
         for end_t in range(len(single_utterances)):
             context = make_context(utterance_list=single_utterances, speaker_list=single_utterances_speaker, start_t=0, end_t=end_t, max_seq_len=max_seq_len)
             
-            # Original
-            utterance.append(tokenizer_(single_utterances[end_t], context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            # # Original
+            # utterance.append(tokenizer_(single_utterances[end_t], context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
             
             # # Speaker 정보 추가
-            # spk = single_utterances_speaker[end_t]
-            # speaker_plus_utterance = f'[Speaker {spk}] {single_utterances[end_t]}' # 감싸거나 말거나
-            # utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            spk = single_utterances_speaker[end_t]
+            speaker_plus_utterance = f'[Speaker {spk}] {single_utterances[end_t]}' # 감싸거나 말거나
+            utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
         
         doc_utterance.append(utterance)
         

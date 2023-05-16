@@ -65,3 +65,9 @@ train_data_list = ['data/data_mini/dailydialog_train.json']
 valid_data_list = ['data/data_mini/dailydialog_valid.json']
 test_data_list = ['data/data_mini/dailydialog_test.json']
 data_label = ['-original_mini']
+
+# ConvECPE
+train_data_list = ['ConvECPE/ConvECPE_train.json',]
+valid_data_list = ['ConvECPE/ConvECPE_valid.json',]
+test_data_list = ['ConvECPE/ConvECPE_test.json',]
+data_label = ['-ConvECPE',]

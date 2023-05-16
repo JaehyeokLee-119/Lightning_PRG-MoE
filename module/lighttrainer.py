@@ -24,13 +24,14 @@ class LitPRGMoE(pl.LightningModule):
         self.use_exp12 = kwargs['use_exp12']
         
         self.freeze_ratio = kwargs['freeze_ratio']
+        self.n_emotion = kwargs['n_emotion']
         if self.use_original:
             self.model = OriginalPRG_MoE() # output: (emotion prediction, cause prediction)
         else:
             if self.use_exp12:
                 self.model = TotalModel_exp12(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
             else:
-                self.model = TotalModel(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
+                self.model = TotalModel(self.encoder_name, n_emotion=self.n_emotion, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
 
         # 하이퍼파라미터 설정
         self.training_iter = kwargs['training_iter']
@@ -38,7 +39,6 @@ class LitPRGMoE(pl.LightningModule):
         self.learning_rate = kwargs['learning_rate']
         self.window_size = kwargs['window_size']
         self.n_expert = 4
-        self.n_emotion = 7
         self.guiding_lambda = kwargs['guiding_lambda']
         self.loss_lambda = kwargs['loss_lambda'] # loss 중 Emotion loss의 비율
         # 학습 방법 설정
@@ -141,7 +141,7 @@ class LitPRGMoE(pl.LightningModule):
         check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.encoder_name)
 
         # emotion pred/label을 pair candidate만큼 늘림
-        emotion_list = emotion_prediction.view(batch_size, -1, 7)
+        emotion_list = emotion_prediction.view(batch_size, -1, self.n_emotion)
         emotion_pair_list = []
         emotion_pred_list = []
         for doc_emotion in emotion_list: # 전체 batch에서 각 doc(대화)을 가져옴
@@ -434,7 +434,8 @@ class LitPRGMoE(pl.LightningModule):
         logger.info(logging_texts)
         if (types == 'test'):
             # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
-            label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
+            # label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
+            label_ = np.array([1, 11, 21, 31, 41, 51, 0, 10, 20, 30, 40, 50])
             confusion_pred = confusion_matrix(torch.cat(self.emo_cause_true_y_list[types]).to('cpu'), torch.cat(self.emo_cause_pred_y_list[types]).to('cpu'), labels=label_)
             confusion_all = confusion_matrix(torch.cat(self.emo_cause_true_y_list_all[types]).to('cpu'), torch.cat(self.emo_cause_pred_y_list_all[types]).to('cpu'), labels=label_)
             
@@ -522,8 +523,10 @@ def metrics_report_for_emo_binary(pred_y, true_y, get_dict=False, multilabel=Fal
         available_label = sorted(list(set(true_y.tolist() + pred_y.tolist())))
 
     class_name = ['non-neutral', 'neutral']
-    pred_y = [1 if element == 6 else 0 for element in pred_y] # element 6 means neutral.
-    true_y = [1 if element == 6 else 0 for element in true_y]
+    
+    label_neutral = 2
+    pred_y = [1 if element == label_neutral else 0 for element in pred_y] # element 6 means neutral.
+    true_y = [1 if element == label_neutral else 0 for element in true_y]
 
     if get_dict:
         return classification_report(true_y, pred_y, target_names=class_name, zero_division=0, digits=4, output_dict=True)
@@ -535,19 +538,19 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
                 cau_pred_y_list, cau_true_y_list, cau_pred_y_list_all, cau_true_y_list_all, cau_pred_y_list_all_windowed,
                 emo_cause_pred_y_list, emo_cause_true_y_list, emo_cause_pred_y_list_all, emo_cause_true_y_list_all,
                 loss_avg, multiclass_avg_type):
+    
     # <<[[ Emotion 부분 ]]>>
-    label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
-    # logger.info('\n' + metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_))
+    # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
+    # emotion_label_policy = {'happy': 0, 'sad': 1, 'neutral': 2, 'angry': 3, 'excited': 4, 'frustrated': 5}
+    label_ = np.array(['happy', 'sad', 'neutral', 'angry', 'excited', 'frustrated'])
+    
     emo_report_dict = metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_, get_dict=True)
     emo_report_str = metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_, get_dict=False)
     acc_emo, macro_f1, weighted_f1 = emo_report_dict['accuracy'], emo_report_dict['macro avg']['f1-score'], emo_report_dict['weighted avg']['f1-score']
     emo_metrics = (acc_emo, macro_f1, weighted_f1)
     
     # For binary emotion classification
-    # logger.info('\n' + metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list)))
     emo_binary_str = metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), get_dict=False)
-    # acc_emo, p_emo, r_emo, f1_emo = report_dict['accuracy'], report_dict['weighted avg']['precision'], report_dict['weighted avg']['recall'], report_dict['weighted avg']['f1-score']
-    # logger.info(f'\nemotion (binary): {option} | loss {loss_avg}\n')
     
     # <<[[  Cause 부분  ]]>>
     label_ = np.array(['No Cause', 'Cause'])
@@ -570,8 +573,12 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
         
     f1_cau = 2 * p_cau * r_cau / (p_cau + r_cau) if p_cau + r_cau != 0 else 0
     
-    # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
-    label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
+    # # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
+    # label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
+    
+    # label_ = np.array(['happy', 'sad', 'neutral', 'angry', 'excited', 'frustrated'])
+    label_ = np.array([1, 11, 21, 31, 41, 51, 0, 10, 20, 30, 40, 50])
+    
     confusion_pred = confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), labels=label_)
     confusion_all = confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), labels=label_)
     
@@ -591,25 +598,7 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     # support_ratio = [0, 0, 0, 0, 0, 0]
     # for i in range(len(support_ratio)):
     #     support_ratio[i] = pred_num_recall_denominator_dict[i]/sum(pred_num_recall_denominator_dict)
-        
-    '''# Confusion matrix 시각화
-    print('\t', end="")
-    for label in label_:
-        print(label, '\t', end="")
-    print("")
-    for row, label in zip(confusion_pred, label_):
-        print(label, '\t', end="")
-        for col in row:
-            print(col, '\t', end="")
-        print("")
-        '''
-    '''
-    <Pair-emotion F1 알고리즘 정리>
-    - 각 Pair-Emotion 예측 여부에 따라 7*2 크기의 confusion matrix를 만듦
-    - 클래스 1, 11, 21, 31, 41, 51 [(pair,angry), (pair,disgust), (pair,fear), ..., (pair,surprise)]에 대해 각각의 precision, recall 구한다.
-    - 구한 각 클래스의 precision, recall을 평균내어 전체 precision, recall 구한다 (macro average)
-    - 전체 precision, recall을 통해 Pair-Emotion F1 구한다.
-    '''
+    
     # 불균형이 심하므로 micro
     micro_precision = sum(pred_num_acc_list) / sum(pred_num_precision_denominator_dict)
     micro_recall = sum(pred_num_acc_list) / sum(pred_num_recall_denominator_dict) # 정답은 단 한 종류만 허용
@@ -619,11 +608,7 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     p_emo_cau = micro_precision
     r_emo_cau = micro_recall
     f1_emo_cau = micro_f1
-    
-    # p_emo_cau /= len(idx_list)
-    # r_emo_cau /= len(idx_list)
-    # f1_emo_cau = 2 * p_emo_cau * r_emo_cau / (p_emo_cau + r_emo_cau) if p_emo_cau + r_emo_cau != 0 else 0
-    
+        
     return emo_report_str, emo_metrics, emo_binary_str, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau
 
 def argmax_prediction(pred_y, true_y):

@@ -10,14 +10,17 @@ def get_data(data_file, device, max_seq_len, encoder_name, contain_context=False
     data = json.load(f)
     f.close()
 
-    emotion_label_policy = {'angry': 0, 'anger': 0,
-        'disgust': 1,
-        'fear': 2,
-        'happy': 3, 'happines': 3, 'happiness': 3, 'excited': 3,
-        'sad': 4, 'sadness': 4, 'frustrated': 4,
-        'surprise': 5, 'surprised': 5, 
-        'neutral': 6}
+    # emotion_label_policy = {'angry': 0, 'anger': 0,
+    #     'disgust': 1,
+    #     'fear': 2,
+    #     'happy': 3, 'happines': 3, 'happiness': 3, 'excited': 3,
+    #     'sad': 4, 'sadness': 4, 'frustrated': 4,
+    #     'surprise': 5, 'surprised': 5, 
+    #     'neutral': 6}
 
+    # For ConvECPE
+    emotion_label_policy = {'happy': 0, 'sad': 1, 'neutral': 2, 'angry': 3, 'excited': 4, 'frustrated': 5}
+    
     cause_label_policy = {'no-context':0, 'inter-personal':1, 'self-contagion':2, 'latent':3}
 
     if contain_context:

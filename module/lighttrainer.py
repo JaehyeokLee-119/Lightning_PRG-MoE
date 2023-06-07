@@ -23,6 +23,8 @@ class LitPRGMoE(pl.LightningModule):
         self.use_original = kwargs['use_original']
         self.use_exp12 = kwargs['use_exp12']
         
+        self.dataset_type = kwargs['dataset_type']
+        
         self.freeze_ratio = kwargs['freeze_ratio']
         self.n_emotion = kwargs['n_emotion']
         if self.use_original:
@@ -356,13 +358,13 @@ class LitPRGMoE(pl.LightningModule):
         logger = logging.getLogger(types)
         
         loss_avg = self.loss_sum[types] / self.batch_count[types]
-        emo_report, emo_metrics, emo_binary_report, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau = log_metrics(self.emo_pred_y_list[types], self.emo_true_y_list[types], 
+        emo_report, emo_metrics, emo_binary_report, acc_cau, p_cau, r_cau, f1_cau, p_emo_cau, r_emo_cau, f1_emo_cau = log_metrics(self.dataset_type, self.emo_pred_y_list[types], self.emo_true_y_list[types], 
                                                 self.cau_pred_y_list[types], self.cau_true_y_list[types],
                                                 self.cau_pred_y_list_all[types], self.cau_true_y_list_all[types], 
-                                                self.cau_pred_y_list_all_windowed[types], 
+                                                self.cau_pred_y_list_all_windowed[types],
                                                 self.emo_cause_pred_y_list[types], self.emo_cause_true_y_list[types],
                                                 self.emo_cause_pred_y_list_all[types], self.emo_cause_true_y_list_all[types],
-                                                loss_avg, self.multiclass_avg_type)
+                                                loss_avg, self.multiclass_avg_type)  # recall에 윈도우 안 깎은 버전 (cau_pred_y_list_all_windowed)
         
         self.log('binary_cause 1.loss', loss_avg, sync_dist=True)
         self.log('binary_cause 2.accuracy', acc_cau, sync_dist=True)
@@ -434,8 +436,11 @@ class LitPRGMoE(pl.LightningModule):
         logger.info(logging_texts)
         if (types == 'test'):
             # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
-            # label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
-            label_ = np.array([1, 11, 21, 31, 41, 51, 0, 10, 20, 30, 40, 50])
+            
+            if self.dataset_type == 'RECCON':
+                label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
+            elif self.dataset_type == 'ConvECPE':
+                label_ = np.array([1, 11, 21, 31, 41, 51, 0, 10, 20, 30, 40, 50])
             confusion_pred = confusion_matrix(torch.cat(self.emo_cause_true_y_list[types]).to('cpu'), torch.cat(self.emo_cause_pred_y_list[types]).to('cpu'), labels=label_)
             confusion_all = confusion_matrix(torch.cat(self.emo_cause_true_y_list_all[types]).to('cpu'), torch.cat(self.emo_cause_pred_y_list_all[types]).to('cpu'), labels=label_)
             
@@ -514,7 +519,7 @@ class LitPRGMoE(pl.LightningModule):
 
         return pair_info
     
-def metrics_report_for_emo_binary(pred_y, true_y, get_dict=False, multilabel=False):
+def metrics_report_for_emo_binary(pred_y, true_y, label_neutral=6, get_dict=False, multilabel=False):
     if multilabel:
         pred_y, true_y = threshold_prediction(pred_y, true_y)
         available_label = sorted(list(set((pred_y == True).nonzero()[:, -1].tolist() + (true_y == True).nonzero()[:, -1].tolist())))
@@ -524,7 +529,6 @@ def metrics_report_for_emo_binary(pred_y, true_y, get_dict=False, multilabel=Fal
 
     class_name = ['non-neutral', 'neutral']
     
-    label_neutral = 2
     pred_y = [1 if element == label_neutral else 0 for element in pred_y] # element 6 means neutral.
     true_y = [1 if element == label_neutral else 0 for element in true_y]
 
@@ -534,7 +538,7 @@ def metrics_report_for_emo_binary(pred_y, true_y, get_dict=False, multilabel=Fal
         return classification_report(true_y, pred_y, target_names=class_name, zero_division=0, digits=4)
 
     
-def log_metrics(emo_pred_y_list, emo_true_y_list, 
+def log_metrics(dataset_type, emo_pred_y_list, emo_true_y_list, 
                 cau_pred_y_list, cau_true_y_list, cau_pred_y_list_all, cau_true_y_list_all, cau_pred_y_list_all_windowed,
                 emo_cause_pred_y_list, emo_cause_true_y_list, emo_cause_pred_y_list_all, emo_cause_true_y_list_all,
                 loss_avg, multiclass_avg_type):
@@ -542,15 +546,21 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     # <<[[ Emotion 부분 ]]>>
     # label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
     # emotion_label_policy = {'happy': 0, 'sad': 1, 'neutral': 2, 'angry': 3, 'excited': 4, 'frustrated': 5}
-    label_ = np.array(['happy', 'sad', 'neutral', 'angry', 'excited', 'frustrated'])
-    
+    # label_ = np.array(['happy', 'sad', 'neutral', 'angry', 'excited', 'frustrated'])
+    if dataset_type == 'RECCON':
+        label_ = np.array(['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral'])
+        label_neutral = 6
+    elif dataset_type == 'ConvECPE':
+        label_ = np.array(['happy', 'sad', 'neutral', 'angry', 'excited', 'frustrated'])
+        label_neutral = 2
+        
     emo_report_dict = metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_, get_dict=True)
     emo_report_str = metrics_report(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label=label_, get_dict=False)
     acc_emo, macro_f1, weighted_f1 = emo_report_dict['accuracy'], emo_report_dict['macro avg']['f1-score'], emo_report_dict['weighted avg']['f1-score']
     emo_metrics = (acc_emo, macro_f1, weighted_f1)
     
     # For binary emotion classification
-    emo_binary_str = metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), get_dict=False)
+    emo_binary_str = metrics_report_for_emo_binary(torch.cat(emo_pred_y_list), torch.cat(emo_true_y_list), label_neutral=label_neutral, get_dict=False)
     
     # <<[[  Cause 부분  ]]>>
     label_ = np.array(['No Cause', 'Cause'])
@@ -560,9 +570,10 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     else:   #추가된 부분
         _, p_cau, _, _ = 0, 0, 0, 0   #추가된 부분
         
-    # 원래의 recall (window 상관없이 recall을 구한 원래 recall 측정 메트릭)
+    # # 원래의 recall (window 상관없이 recall을 구한 원래 recall 측정 메트릭)
     # report_dict = metrics_report(torch.cat(cau_pred_y_list_all), torch.cat(cau_true_y_list_all), label=label_, get_dict=True)
     
+    # 실제 recall (정답은 하나)
     class_name = list(label_)
     report_dict = classification_report(torch.cat(cau_true_y_list_all).cpu(), torch.cat(cau_pred_y_list_all_windowed).cpu(), target_names=class_name, zero_division=0, digits=4, output_dict=True)
     
@@ -577,8 +588,15 @@ def log_metrics(emo_pred_y_list, emo_true_y_list,
     # label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
     
     # label_ = np.array(['happy', 'sad', 'neutral', 'angry', 'excited', 'frustrated'])
-    label_ = np.array([1, 11, 21, 31, 41, 51, 0, 10, 20, 30, 40, 50])
+    # label_ = np.array([1, 11, 21, 31, 41, 51, 0, 10, 20, 30, 40, 50])
     
+    if dataset_type == 'RECCON':
+        label_ = np.array([1, 11, 21, 31, 41, 51, 61, 0, 10, 20, 30, 40, 50, 60])
+        label_neutral = 6
+    elif dataset_type == 'ConvECPE':
+        label_ = np.array([1, 11, 21, 31, 41, 51, 0, 10, 20, 30, 40, 50])
+        label_neutral = 2
+        
     confusion_pred = confusion_matrix(torch.cat(emo_cause_true_y_list).to('cpu'), torch.cat(emo_cause_pred_y_list).to('cpu'), labels=label_)
     confusion_all = confusion_matrix(torch.cat(emo_cause_true_y_list_all).to('cpu'), torch.cat(emo_cause_pred_y_list_all).to('cpu'), labels=label_)
     

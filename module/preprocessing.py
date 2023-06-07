@@ -2,7 +2,9 @@ import json
 import torch
 from transformers import BertTokenizer, AutoTokenizer
 
-def get_data(data_file, device, max_seq_len, encoder_name, contain_context=False):
+LABEL_NEUTRAL = 2
+
+def get_data(data_file, dataset_type, device, max_seq_len, encoder_name, contain_context=False):
     '''
     encoder_name: bert-base-uncased, roberta-large, etc.
     '''
@@ -10,16 +12,17 @@ def get_data(data_file, device, max_seq_len, encoder_name, contain_context=False
     data = json.load(f)
     f.close()
 
-    # emotion_label_policy = {'angry': 0, 'anger': 0,
-    #     'disgust': 1,
-    #     'fear': 2,
-    #     'happy': 3, 'happines': 3, 'happiness': 3, 'excited': 3,
-    #     'sad': 4, 'sadness': 4, 'frustrated': 4,
-    #     'surprise': 5, 'surprised': 5, 
-    #     'neutral': 6}
-
-    # For ConvECPE
-    emotion_label_policy = {'happy': 0, 'sad': 1, 'neutral': 2, 'angry': 3, 'excited': 4, 'frustrated': 5}
+    if dataset_type == 'RECCON':
+        emotion_label_policy = {'angry': 0, 'anger': 0,
+            'disgust': 1,
+            'fear': 2,
+            'happy': 3, 'happines': 3, 'happiness': 3, 'excited': 3,
+            'sad': 4, 'sadness': 4, 'frustrated': 4,
+            'surprise': 5, 'surprised': 5, 
+            'neutral': 6}
+    else: 
+        # For ConvECPE
+        emotion_label_policy = {'happy': 0, 'sad': 1, 'neutral': 2, 'angry': 3, 'excited': 4, 'frustrated': 5}
     
     cause_label_policy = {'no-context':0, 'inter-personal':1, 'self-contagion':2, 'latent':3}
 
@@ -319,6 +322,7 @@ def get_pad_idx(utterance_input_ids_batch, encoder_name):
 def get_pair_pad_idx(utterance_input_ids_batch, encoder_name, window_constraint=3, emotion_pred=None):
     # input utterance batch에 대한 pad idx를 구한다 (유효한 pair는 1, pad는 0)
     batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
+    label_neutral = LABEL_NEUTRAL
     
     check_pad_idx = get_pad_idx(utterance_input_ids_batch, encoder_name) # dialog batch에서 padding은 0으로, 유효한 토큰은 그냥 숫자가 있는 idx [140]
 
@@ -331,7 +335,7 @@ def get_pair_pad_idx(utterance_input_ids_batch, encoder_name, window_constraint=
         for batch, emo_pred in zip(check_pad_idx.view(-1, max_doc_len), emotion_pred.view(batch_size,-1)): # check_pad_idx [140] -> [5,28]해서, batch=[28]
             pair_window_idx = torch.zeros(int(max_doc_len * (max_doc_len + 1) / 2)) # pair window를 넣을 공간을 만든다 (28*29/2=406)
             for end_t in range(1, len(batch.nonzero()) + 1): # 각 dialog속의 '진짜 문장 길이'만큼 반복
-                if emotion_pred is not None and emo_pred[end_t - 1] == 6: # emotion이 6(중립)인 경우는 제외
+                if emotion_pred is not None and emo_pred[end_t - 1] == label_neutral: # emotion이 (중립)인 경우는 제외
                     continue
                 
                 # non-neutral인 경우, window_constraint만큼의 window를 만들어서 1로 채운다

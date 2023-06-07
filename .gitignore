@@ -1,6 +1,7 @@
 # Logs
 lightning_logs
 logs*
+former_logs
 
 # Caches
 _*

@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--only_emotion', help='only emotion classification', default=False, type=bool)
     parser.add_argument('--only_cause', help='only cause classification', default=False, type=bool)
     parser.add_argument('--emo_model_path', help='the path of emotion model', default=None)
-    
+    parser.add_argument('--dataset_type', help='RECCON or ConvECPE', default='RECCON')
     # Encoder Model Setting
     parser.add_argument('--encoder_name', help='the name of encoder', default='roberta-base')
     parser.add_argument('--max_seq_len', help='the max length of each tokenized utterance', default=75, type=int)

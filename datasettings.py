@@ -71,3 +71,15 @@ train_data_list = ['ConvECPE/ConvECPE_train.json',]
 valid_data_list = ['ConvECPE/ConvECPE_valid.json',]
 test_data_list = ['ConvECPE/ConvECPE_test.json',]
 data_label = ['-ConvECPE',]
+
+# ConvECPE 5-fold cross-validation
+train_data_list = [
+* [f'data/data_ConvECPE/ConvECPE_fold_{fold_}_train.json' for fold_ in range(0, 5)]
+]
+valid_data_list = [
+    * [f'data/data_ConvECPE/ConvECPE_fold_{fold_}_valid.json' for fold_ in range(0, 5)]
+]
+test_data_list = [
+    * [f'data/data_ConvECPE/ConvECPE_fold_{fold_}_test.json' for fold_ in range(0, 5)]
+]
+data_label = [*[f'-data_{fold_}_ConvECPE' for fold_ in range(0, 5)]]

@@ -10,7 +10,7 @@ from module.evaluation import FocalLoss #log_metrics,
 from sklearn.metrics import classification_report, precision_score , recall_score , confusion_matrix
 from transformers import AutoModel
 import numpy as np
-from module.lightmodels import TotalModel, OriginalPRG_MoE, TotalModel_exp12
+from module.lightmodels import TotalModel, OriginalPRG_MoE, TotalModel_exp12, TotalModel_exp5
 
 class LitPRGMoE(pl.LightningModule):
     def __init__(self, **kwargs):
@@ -27,11 +27,16 @@ class LitPRGMoE(pl.LightningModule):
         
         self.freeze_ratio = kwargs['freeze_ratio']
         self.n_emotion = kwargs['n_emotion']
+        
+        if self.n_emotion == 7:
+            self.label_neutral = 6
+        else:
+            self.label_neutral = 2
         if self.use_original:
             self.model = OriginalPRG_MoE() # output: (emotion prediction, cause prediction)
         else:
             if self.use_exp12:
-                self.model = TotalModel_exp12(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
+                self.model = TotalModel_exp5(self.encoder_name, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
             else:
                 self.model = TotalModel(self.encoder_name, n_emotion=self.n_emotion, freeze_ratio=self.freeze_ratio) # output: (emotion prediction, cause prediction)
 
@@ -138,8 +143,8 @@ class LitPRGMoE(pl.LightningModule):
         # 모델의 forward 결과로부터 loss 계산과 로깅을 위한 input 6개를 구해 리턴
         batch_size, _, _ = utterance_input_ids_batch.shape
         # Output processing
-        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction)
-        check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, )
+        check_pair_window_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=self.window_size, emotion_pred=emotion_prediction, label_neutral=self.label_neutral)
+        check_pair_pad_idx = get_pair_pad_idx(utterance_input_ids_batch, self.encoder_name, window_constraint=1000, label_neutral=self.label_neutral, )
         check_pad_idx = get_pad_idx(utterance_input_ids_batch, self.encoder_name)
 
         # emotion pred/label을 pair candidate만큼 늘림

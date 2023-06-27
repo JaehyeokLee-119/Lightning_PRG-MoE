@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--pretrained_model', default=None)
     parser.add_argument('--test', default=False)
     parser.add_argument('--model_save_path', default='./model')
+    parser.add_argument('--context_type', default='xxx', type=str)
 
     parser.add_argument('--train_data', default="data/data_fold/data_0/dailydialog_train.json")
     parser.add_argument('--valid_data', default="data/data_fold/data_0/dailydialog_valid.json")

@@ -2,9 +2,7 @@ import json
 import torch
 from transformers import BertTokenizer, AutoTokenizer
 
-LABEL_NEUTRAL = 2
-
-def get_data(data_file, dataset_type, device, max_seq_len, encoder_name, contain_context=False):
+def get_data(data_file, dataset_type, device, max_seq_len, encoder_name, contain_context=False, context_type=None):
     '''
     encoder_name: bert-base-uncased, roberta-large, etc.
     '''
@@ -27,7 +25,7 @@ def get_data(data_file, dataset_type, device, max_seq_len, encoder_name, contain
     cause_label_policy = {'no-context':0, 'inter-personal':1, 'self-contagion':2, 'latent':3}
 
     if contain_context:
-        preprocessed_utterance, max_doc_len, max_seq_len = load_utterance_with_context(data_file, device, max_seq_len, encoder_name)
+        preprocessed_utterance, max_doc_len, max_seq_len = load_utterance_with_context(data_file, device, max_seq_len, encoder_name, context_type=context_type)
     else:
         preprocessed_utterance, max_doc_len, max_seq_len = load_utterance(data_file, device, max_seq_len, encoder_name)
 
@@ -153,38 +151,111 @@ def load_utterance(data_file, device, max_seq_len, encoder_name):
     out_utterance_input_ids, out_utterance_attention_mask, out_utterance_token_type_ids = torch.stack(out_utterance_input_ids), torch.stack(out_utterance_attention_mask), torch.stack(out_utterance_token_type_ids)
     return (out_utterance_input_ids, out_utterance_attention_mask, out_utterance_token_type_ids), max_doc_len, max_seq_len
 
-def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
-    def make_context(utterance_list, speaker_list, start_t, end_t, max_seq_len):
-        # context = "[SEP]".join(utterance_list[start_t:end_t])
-        # Original: context = " ".join(utterance_list[start_t:end_t])
-        # 1st(context를 [SEP]로 분리): context = "[SEP]".join(utterance_list[start_t:end_t])
-        # 2nd(context 순서를 뒤집어 최신이 앞에 오게): context = "[SEP]".join(utterance_list[start_t:end_t][::-1])
-        # 3rd(화자 정보를 추가: [CLS] A said [SEP] 내용 [SEP] B said [SEP] 이전 발화 ...): 
-        # 4th(화자 정보를 추가: [CLS] [Speaker A] 내용 [/Speaker A] [SEP] [Speaker B] 내용 [/Speaker B] 이전 발화 ...):
-        # 5th(화자 정보를 추가: [CLS] [Speaker A] 내용 [SEP] [Speaker B] 내용 [SEP] [Speaker A] 내용 [SEP] ...)
+def load_utterance_with_context(data_file, device, max_seq_len, encoder_name, context_type):
+    def make_context(utterance_list, speaker_list, start_t, end_t, max_seq_len, context_type='xxx'):
+        if context_type == 'xxx':
+            context = " ".join(utterance_list[start_t:end_t])
+            tokenized_len = len(tokenizer_(f'{single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'vxx':
+            context = "[SEP]".join(utterance_list[start_t:end_t])
+            tokenized_len = len(tokenizer_(f'{single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'xvx':
+            context = " ".join(utterance_list[start_t:end_t][::-1])
+            tokenized_len = len(tokenizer_(f'{single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'vvx':
+            context = "[SEP]".join(utterance_list[start_t:end_t][::-1])
+            tokenized_len = len(tokenizer_(f'{single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+            
+        elif context_type == 'xx1':
+            context = ""
+            for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+                context += f'{speaker} said {utterance}'
+            tokenized_len = len(tokenizer_(f'A said {single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'xx2':
+            context = ""
+            for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+                context += f'{speaker} said [SEP] {utterance}'
+            tokenized_len = len(tokenizer_(f'A said [SEP] {single_utterances[end_t]}', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'xx3':
+            context = ""
+            for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+                context += f'[Speaker {speaker}] {utterance} [/Speaker {speaker}]'
+            tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]} [/Speaker A] [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'xx4':
+            context = ""
+            for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+                context += f'[Speaker {speaker}] {utterance}'
+            tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
         
-        # context = " ".join(utterance_list[start_t:end_t])
-        # # 아래 3줄은 3rd, 4th, 5th를 위한 코드
+        elif context_type == 'xv1':
+            context = ""
+            for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+                context += f'{speaker} said {utterance}'
+            tokenized_len = len(tokenizer_(f'A said {single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'xv2':
+            context = ""
+            for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+                context += f'{speaker} said [SEP] {utterance}'
+            tokenized_len = len(tokenizer_(f'A said [SEP] {single_utterances[end_t]}', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'xv3':
+            context = ""
+            for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+                context += f'[Speaker {speaker}] {utterance} [/Speaker {speaker}]'
+            tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]} [/Speaker A] [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'xv4':
+            context = ""
+            for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+                context += f'[Speaker {speaker}] {utterance}'
+            tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
         
-        # Code for 6th (역방향)
-        # context = ""
-        # for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
-        #     context += f'[Speaker {speaker}] {utterance} '
+        elif context_type == 'vx1':
+            context = ""
+            for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+                context += f'{speaker} said {utterance} [SEP]'
+            tokenized_len = len(tokenizer_(f'A said {single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'vx2':
+            context = ""
+            for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+                context += f'{speaker} said [SEP] {utterance} [SEP]'
+            tokenized_len = len(tokenizer_(f'A said [SEP] {single_utterances[end_t]}', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'vx3':
+            context = ""
+            for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+                context += f'[Speaker {speaker}] {utterance} [/Speaker {speaker}] [SEP]'
+            tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]} [/Speaker A] [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'vx4':
+            context = ""
+            for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
+                context += f'[Speaker {speaker}] {utterance} [SEP]'
+            tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
         
-        # # Code for 3th~. 
-        # 7th: 정방향, [SEP] 없이 [Speaker A]로만 구분이 되니까 그거 실험해보자
-        context = ""
-        for utterance, speaker in zip(utterance_list[start_t:end_t], speaker_list[start_t:end_t]):
-            context += f'[Speaker {speaker}] {utterance} [SEP]' # FOR 3rd method, 'A said':  f'{speaker} said [SEP] {utterance} [SEP]'
+        elif context_type == 'vv1':
+            context = ""
+            for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+                context += f'{speaker} said {utterance} [SEP]'
+            tokenized_len = len(tokenizer_(f'A said {single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'vv2':
+            context = ""
+            for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+                context += f'{speaker} said [SEP] {utterance} [SEP]'
+            tokenized_len = len(tokenizer_(f'A said [SEP] {single_utterances[end_t]}', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'vv3':
+            context = ""
+            for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+                context += f'[Speaker {speaker}] {utterance} [/Speaker {speaker}] [SEP]'
+            tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]} [/Speaker A] [SEP]', context, return_tensors="pt")['input_ids'][0])
+        elif context_type == 'vv4':
+            context = ""
+            for utterance, speaker in zip(list(reversed(utterance_list[start_t:end_t])), list(reversed(speaker_list[start_t:end_t]))):
+                context += f'[Speaker {speaker}] {utterance} [SEP]'
+            tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]} [SEP]', context, return_tensors="pt")['input_ids'][0])
+        
         
         if start_t > end_t:
             return ""
-
-        # tokenized_len = len(tokenizer_(f'[Speaker A] {single_utterances[end_t]}', context, return_tensors="pt")['input_ids'][0])
-        # # 클리핑이 일어나지 않게, 토크나이저에서 잰 길이를 활용함
         
-        # if tokenized_len > max_seq_len:
-        if len(context.split()) + len(utterance_list[end_t].split()) > max_seq_len:
+        if tokenized_len > max_seq_len:
+        # if len(context.split()) + len(utterance_list[end_t].split()) > max_seq_len:
             context = make_context(utterance_list=utterance_list, speaker_list=speaker_list, start_t=start_t+1, end_t=end_t, max_seq_len=max_seq_len)
         else:
             return context
@@ -217,16 +288,44 @@ def load_utterance_with_context(data_file, device, max_seq_len, encoder_name):
             single_utterances_speaker.append(turn_data["speaker"])
 
         for end_t in range(len(single_utterances)):
-            context = make_context(utterance_list=single_utterances, speaker_list=single_utterances_speaker, start_t=0, end_t=end_t, max_seq_len=max_seq_len)
+            context = make_context(utterance_list=single_utterances, speaker_list=single_utterances_speaker, start_t=0, end_t=end_t, max_seq_len=max_seq_len, context_type=context_type)
             
-            # # Original
-            # utterance.append(tokenizer_(single_utterances[end_t], context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
-            
-            # # Speaker 정보 추가
             spk = single_utterances_speaker[end_t]
-            speaker_plus_utterance = f'[Speaker {spk}] {single_utterances[end_t]}' # 감싸거나 말거나
-            utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
-        
+            # context_type이 1로 끝나는 경우 
+            if context_type[-1] == '1':
+                speaker_plus_utterance = f'{spk} said {single_utterances[end_t]}' # 감싸거나 말거나
+                utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            elif context_type[-1] == '2':
+                speaker_plus_utterance = f'{spk} said [SEP] {single_utterances[end_t]}' # 감싸거나 말거나
+                utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            elif context_type[-1] == '3':
+                speaker_plus_utterance = f'[Speaker {spk}] {single_utterances[end_t]} [/Speaker {spk}]' # 감싸거나 말거나
+                utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            elif context_type[-1] == '4':
+                speaker_plus_utterance = f'[Speaker {spk}] {single_utterances[end_t]}' # 감싸거나 말거나
+                utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            else:
+                utterance.append(tokenizer_(single_utterances[end_t], context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            
+                
+            # # # Original
+            # # utterance.append(tokenizer_(single_utterances[end_t], context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            
+            # # # # Speaker 토큰 [Speaker]
+            # # spk = single_utterances_speaker[end_t]
+            # # speaker_plus_utterance = f'[Speaker {spk}] {single_utterances[end_t]}' # 감싸거나 말거나
+            # # utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            
+            # # # Speaker 토큰 [Speaker] [/Speaker]
+            # spk = single_utterances_speaker[end_t]
+            # speaker_plus_utterance = f'[Speaker {spk}] {single_utterances[end_t]} [/Speaker {spk}]' # 감싸거나 말거나
+            # utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            
+            # # # # Speaker 정보 (Said)
+            # # spk = single_utterances_speaker[end_t]
+            # # speaker_plus_utterance = f'{spk} said {single_utterances[end_t]}' # 감싸거나 말거나
+            # # utterance.append(tokenizer_(speaker_plus_utterance, context, padding='max_length', max_length = max_seq_len, truncation=True, return_tensors="pt"))
+            
         doc_utterance.append(utterance)
         
     out_utterance_input_ids, out_utterance_attention_mask, out_utterance_token_type_ids = [list() for _ in range(3)]
@@ -319,10 +418,9 @@ def get_pad_idx(utterance_input_ids_batch, encoder_name):
 
     return check_pad_idx
 
-def get_pair_pad_idx(utterance_input_ids_batch, encoder_name, window_constraint=3, emotion_pred=None):
+def get_pair_pad_idx(utterance_input_ids_batch, encoder_name, window_constraint=3, emotion_pred=None, label_neutral=6):
     # input utterance batch에 대한 pad idx를 구한다 (유효한 pair는 1, pad는 0)
     batch_size, max_doc_len, max_seq_len = utterance_input_ids_batch.shape
-    label_neutral = LABEL_NEUTRAL
     
     check_pad_idx = get_pad_idx(utterance_input_ids_batch, encoder_name) # dialog batch에서 padding은 0으로, 유효한 토큰은 그냥 숫자가 있는 idx [140]
 

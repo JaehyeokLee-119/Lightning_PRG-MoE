@@ -25,6 +25,8 @@ class LearningEnv:
         self.emo_model_path = kwargs['emo_model_path']
         self.model_save_path = kwargs['model_save_path']
         
+        self.context_type = kwargs['context_type']
+        
         self.gpus = kwargs['gpus']
         self.single_gpu = len(self.gpus) == 1
         self.num_worker = kwargs['num_worker']
@@ -99,6 +101,7 @@ class LearningEnv:
             "contain_context": self.contain_context,
             "max_seq_len": self.max_seq_len,
             "dataset_type": self.dataset_type,
+            "context_type": self.context_type,
         }
 
     def set_model(self):        
@@ -136,9 +139,9 @@ class LearningEnv:
         self.set_model()
     
     def train(self):
-        train_dataloader = self.get_dataloader(self.train_dataset, self.dataset_type, self.batch_size, self.num_worker, shuffle=True, contain_context=self.contain_context)
-        valid_dataloader = self.get_dataloader(self.valid_dataset, self.dataset_type, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
-        test_dataloader = self.get_dataloader(self.test_dataset, self.dataset_type, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
+        train_dataloader = self.get_dataloader(self.train_dataset, self.dataset_type, self.batch_size, self.num_worker, shuffle=True, contain_context=self.contain_context, context_type=self.context_type)
+        valid_dataloader = self.get_dataloader(self.valid_dataset, self.dataset_type, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context, context_type=self.context_type)
+        test_dataloader = self.get_dataloader(self.test_dataset, self.dataset_type, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context, context_type=self.context_type)
         
         # 두 개의 Trainer 사용 (감정, 원인)
         # Emotion Epoch
@@ -188,7 +191,7 @@ class LearningEnv:
         trainer.test(model, dataloaders=test_dataloader)
     
     def test(self):
-        test_dataloader = self.get_dataloader(self.test_dataset, self.dataset_type, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context)
+        test_dataloader = self.get_dataloader(self.test_dataset, self.dataset_type, self.batch_size, self.num_worker, shuffle=False, contain_context=self.contain_context, context_type=self.context_type)
         
         model_path = self.model_save_path+f"/{self.log_folder_name}.ckpt"
         self.model = LitPRGMoE.load_from_checkpoint(checkpoint_path=self.pretrained_model, **self.model_args)
@@ -219,10 +222,10 @@ class LearningEnv:
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
-    def get_dataloader(self, dataset_type, dataset_file, batch_size, num_worker, shuffle=True, contain_context=False):
+    def get_dataloader(self, dataset_type, dataset_file, batch_size, num_worker, shuffle=True, contain_context=False, context_type='xxx'):
         device = "cuda:0"
         # dataset_type = ["ConvECPE", "RECCON"]
-        data = get_data(dataset_type, dataset_file, device, self.max_seq_len, self.encoder_name, contain_context)
+        data = get_data(dataset_type, dataset_file, device, self.max_seq_len, self.encoder_name, contain_context, context_type=self.context_type)
         utterance_input_ids_t, utterance_attention_mask_t, utterance_token_type_ids_t = data[0]
         speaker_t, emotion_label_t, pair_cause_label_t, pair_binary_cause_label_t = data[1:]
 

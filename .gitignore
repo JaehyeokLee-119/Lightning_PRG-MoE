@@ -9,6 +9,9 @@ _*
 **/__pycache__/
 backups
 
+# Temporary files for experiment setting
+datasettings.py
+*.ipynb
 
 # model checkpoints
 model/*.ckpt
